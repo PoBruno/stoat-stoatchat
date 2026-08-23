@@ -106,8 +106,15 @@ pub enum ChannelPermission {
     /// Play soundboard sounds in a voice channel
     UseSoundboard = 1 << 41,
 
+    /// Upload, rename and remove soundboard sounds
+    ///
+    /// Separado de ManageCustomisation de proposito: quem cuida dos emoji do
+    /// servidor nao e necessariamente quem deve mexer nos sons, e o contrario
+    /// tambem vale.
+    ManageSoundboard = 1 << 42,
+
     // * Misc. permissions
-    // % Bits 42 to 52: free area
+    // % Bits 43 to 52: free area
     // % Bits 53 to 64: do not use
 
     // * Grant all permissions

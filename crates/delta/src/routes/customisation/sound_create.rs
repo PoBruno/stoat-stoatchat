@@ -32,12 +32,12 @@ pub async fn create_sound(
         v0::SoundParent::Server { id } => {
             let server = db.fetch_server(id).await?;
 
-            // Reuses ManageCustomisation rather than inventing a bit: it
-            // already governs emoji, which is the same kind of asset.
+            // Bit proprio, e nao ManageCustomisation: quem cuida dos emoji do
+            // servidor nao e necessariamente quem deve mexer nos sons.
             let mut query = DatabasePermissionQuery::new(db, &user).server(&server);
             calculate_server_permissions(&mut query)
                 .await
-                .throw_if_lacking_channel_permission(ChannelPermission::ManageCustomisation)?;
+                .throw_if_lacking_channel_permission(ChannelPermission::ManageSoundboard)?;
 
             let sounds = db.fetch_sounds_by_parent_id(&server.id).await?;
             if sounds.len() >= config.features.limits.global.server_sounds {

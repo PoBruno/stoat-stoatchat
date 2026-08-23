@@ -9,7 +9,7 @@ use validator::Validate;
 /// Fetch a sound and check the caller may change it.
 ///
 /// Whoever uploaded a sound can always manage it; anyone else needs
-/// ManageCustomisation on the server. Same rule as emoji.
+/// ManageSoundboard on the server.
 async fn resolve_and_authorise(
     db: &Database,
     user: &User,
@@ -24,7 +24,7 @@ async fn resolve_and_authorise(
                 let mut query = DatabasePermissionQuery::new(db, user).server(&server);
                 calculate_server_permissions(&mut query)
                     .await
-                    .throw_if_lacking_channel_permission(ChannelPermission::ManageCustomisation)?;
+                    .throw_if_lacking_channel_permission(ChannelPermission::ManageSoundboard)?;
             }
             SoundParent::Detached => return Err(create_error!(NotFound)),
         }
