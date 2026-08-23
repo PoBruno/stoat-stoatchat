@@ -52,6 +52,10 @@ pub async fn create_database(db: &MongoDb) {
         .await
         .expect("Failed to create forum_posts collection.");
 
+    db.create_collection("sounds")
+        .await
+        .expect("Failed to create sounds collection.");
+
     db.create_collection("forum_comments")
         .await
         .expect("Failed to create forum_comments collection.");
@@ -293,6 +297,27 @@ pub async fn create_database(db: &MongoDb) {
     })
     .await
     .expect("Failed to create forum_comments index.");
+
+    db.run_command(doc! {
+        "createIndexes": "sounds",
+        "indexes": [
+            // Todos os sons de um servidor: a unica leitura quente.
+            {
+                "key": {
+                    "parent.id": 1_i32,
+                },
+                "name": "parent"
+            },
+            {
+                "key": {
+                    "creator_id": 1_i32,
+                },
+                "name": "creator"
+            }
+        ]
+    })
+    .await
+    .expect("Failed to create sounds index.");
 
     db.run_command(doc! {
         "createIndexes": "server_members",

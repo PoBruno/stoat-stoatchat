@@ -26,7 +26,7 @@ struct MigrationInfo {
     revision: i32,
 }
 
-pub const LATEST_REVISION: i32 = 54; // MUST BE +1 to last migration
+pub const LATEST_REVISION: i32 = 55; // MUST BE +1 to last migration
 
 pub async fn migrate_database(db: &MongoDb) {
     let migrations = db.col::<Document>("migrations");
@@ -1645,6 +1645,39 @@ pub async fn run_migrations(db: &MongoDb, revision: i32) -> i32 {
             })
             .await
             .expect("Failed to create forum_comments index");
+    };
+
+    if revision <= 54 {
+        info!("Running migration [revision 54 / 23-08-2026]: Add sounds collection");
+
+        // create_collection erra se ja existe; ignorar mantem a migration
+        // idempotente, igual as duas anteriores.
+        let _ = db.db().create_collection("sounds").await;
+
+        db.db()
+            .run_command(doc! {
+                "createIndexes": "sounds",
+                "indexes": [
+                    // A unica leitura quente: todos os sons de um servidor.
+                    // Sem isto cada abertura do painel varre a colecao.
+                    {
+                        "key": {
+                            "parent.id": 1_i32,
+                        },
+                        "name": "parent"
+                    },
+                    // Quem subiu o que, para a regra de "o criador sempre pode
+                    // gerir o proprio som".
+                    {
+                        "key": {
+                            "creator_id": 1_i32,
+                        },
+                        "name": "creator"
+                    }
+                ]
+            })
+            .await
+            .expect("Failed to create sounds index");
     };
 
     // Reminder to update LATEST_REVISION when adding new migrations.
