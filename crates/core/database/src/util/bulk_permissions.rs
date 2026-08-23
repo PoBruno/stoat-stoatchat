@@ -141,10 +141,14 @@ impl<'z> BulkDatabasePermissionQuery<'z> {
                     allow: permissions.unwrap_or(*DEFAULT_PERMISSION_DIRECT_MESSAGE as i64) as u64,
                     deny: 0,
                 },
-                Channel::TextChannel {
-                    default_permissions,
-                    ..
-                } => default_permissions.unwrap_or_default().into(),
+                    Channel::TextChannel {
+                        default_permissions,
+                        ..
+                    }
+                    | Channel::ForumChannel {
+                        default_permissions,
+                        ..
+                    } => default_permissions.unwrap_or_default().into(),
                 _ => Default::default(),
             }
         } else {
@@ -159,7 +163,9 @@ impl<'z> BulkDatabasePermissionQuery<'z> {
                 Channel::DirectMessage { .. } => ChannelType::DirectMessage,
                 Channel::Group { .. } => ChannelType::Group,
                 Channel::SavedMessages { .. } => ChannelType::SavedMessages,
-                Channel::TextChannel { .. } => ChannelType::ServerChannel,
+                Channel::TextChannel { .. } | Channel::ForumChannel { .. } => {
+                    ChannelType::ServerChannel
+                }
             }
         } else {
             ChannelType::Unknown
@@ -172,6 +178,9 @@ impl<'z> BulkDatabasePermissionQuery<'z> {
         if let Some(channel) = &self.channel {
             match channel {
                 Channel::TextChannel {
+                    role_permissions, ..
+                }
+                | Channel::ForumChannel {
                     role_permissions, ..
                 } => role_permissions,
                 _ => panic!("Not supported for non-server channels"),
@@ -195,6 +204,12 @@ async fn calculate_members_permissions<'a>(
         .clone()
     {
         Channel::TextChannel {
+            id,
+            role_permissions,
+            default_permissions,
+            ..
+        }
+        | Channel::ForumChannel {
             id,
             role_permissions,
             default_permissions,

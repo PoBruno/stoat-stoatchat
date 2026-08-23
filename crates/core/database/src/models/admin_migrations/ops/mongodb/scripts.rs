@@ -26,7 +26,7 @@ struct MigrationInfo {
     revision: i32,
 }
 
-pub const LATEST_REVISION: i32 = 52; // MUST BE +1 to last migration
+pub const LATEST_REVISION: i32 = 54; // MUST BE +1 to last migration
 
 pub async fn migrate_database(db: &MongoDb) {
     let migrations = db.col::<Document>("migrations");
@@ -1527,6 +1527,124 @@ pub async fn run_migrations(db: &MongoDb, revision: i32) -> i32 {
             })
             .await
             .expect("Failed to create audit_logs index");
+    };
+
+    if revision <= 52 {
+        info!("Running migration [revision 52 / 21-08-2026]: Add forum_posts collection");
+
+        // create_collection errors if it already exists; ignore that so the
+        // migration stays idempotent.
+        let _ = db.db().create_collection("forum_posts").await;
+
+        db.db()
+            .run_command(doc! {
+                "createIndexes": "forum_posts",
+                "indexes": [
+                    {
+                        "key": {
+                            "channel": 1_i32,
+                            "pinned": -1_i32,
+                            "hot_rank": -1_i32,
+                            "_id": -1_i32,
+                        },
+                        "name": "channel_hot"
+                    },
+                    {
+                        "key": {
+                            "channel": 1_i32,
+                            "pinned": -1_i32,
+                            "_id": -1_i32,
+                        },
+                        "name": "channel_new"
+                    },
+                    {
+                        "key": {
+                            "channel": 1_i32,
+                            "pinned": -1_i32,
+                            "score": -1_i32,
+                            "_id": -1_i32,
+                        },
+                        "name": "channel_top"
+                    },
+                    {
+                        "key": {
+                            "channel": 1_i32,
+                            "pinned": -1_i32,
+                            "last_comment_at": -1_i32,
+                            "_id": -1_i32,
+                        },
+                        "name": "channel_active"
+                    },
+                    {
+                        "key": {
+                            "channel": 1_i32,
+                            "tags": 1_i32,
+                            "_id": -1_i32,
+                        },
+                        "name": "channel_tags"
+                    },
+                    {
+                        "key": {
+                            "author": 1_i32,
+                        },
+                        "name": "author"
+                    }
+                ]
+            })
+            .await
+            .expect("Failed to create forum_posts index");
+    };
+
+    if revision <= 53 {
+        info!("Running migration [revision 53 / 21-08-2026]: Add forum_comments collection");
+
+        let _ = db.db().create_collection("forum_comments").await;
+
+        db.db()
+            .run_command(doc! {
+                "createIndexes": "forum_comments",
+                "indexes": [
+                    // The thread read: every comment on a post, ordered.
+                    {
+                        "key": {
+                            "post": 1_i32,
+                            "_id": 1_i32,
+                        },
+                        "name": "post_old"
+                    },
+                    {
+                        "key": {
+                            "post": 1_i32,
+                            "score": -1_i32,
+                            "_id": 1_i32,
+                        },
+                        "name": "post_top"
+                    },
+                    // Answers "does this comment have replies?" before deleting,
+                    // and lets a subtree be found without a scan.
+                    {
+                        "key": {
+                            "ancestors": 1_i32,
+                        },
+                        "name": "ancestors"
+                    },
+                    // Sweeping a channel when it is deleted.
+                    {
+                        "key": {
+                            "channel": 1_i32,
+                        },
+                        "name": "channel"
+                    },
+                    {
+                        "key": {
+                            "author": 1_i32,
+                        },
+                        "name": "author"
+                    }
+                ]
+            })
+            .await
+            .expect("Failed to create forum_comments index");
     };
 
     // Reminder to update LATEST_REVISION when adding new migrations.

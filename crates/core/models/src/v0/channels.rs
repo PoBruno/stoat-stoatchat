@@ -5,7 +5,7 @@ use revolt_permissions::{Override, OverrideField};
 use std::collections::{HashMap, HashSet};
 
 #[cfg(feature = "rocket")]
-use rocket::FromForm;
+use rocket::{FromForm, FromFormField};
 
 auto_derived!(
     /// Channel
@@ -117,6 +117,103 @@ auto_derived!(
             #[serde(skip_serializing_if = "Option::is_none")]
             slowmode: Option<u64>,
         },
+        /// Forum channel belonging to a server
+        ///
+        /// Unlike a text channel this has no message stream: content lives in
+        /// `forum_posts` / `forum_comments`.
+        ForumChannel {
+            /// Unique Id
+            #[cfg_attr(feature = "serde", serde(rename = "_id"))]
+            id: String,
+            /// Id of the server this channel belongs to
+            server: String,
+
+            /// Display name of the channel
+            name: String,
+            /// Channel description
+            #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+            description: Option<String>,
+
+            /// Custom icon attachment
+            #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+            icon: Option<File>,
+
+            /// Default permissions assigned to users in this channel
+            #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+            default_permissions: Option<OverrideField>,
+            /// Permissions assigned based on role to this channel
+            #[cfg_attr(
+                feature = "serde",
+                serde(
+                    default = "HashMap::<String, OverrideField>::new",
+                    skip_serializing_if = "HashMap::<String, OverrideField>::is_empty"
+                )
+            )]
+            role_permissions: HashMap<String, OverrideField>,
+
+            /// Whether this channel is marked as not safe for work
+            #[cfg_attr(
+                feature = "serde",
+                serde(skip_serializing_if = "crate::if_false", default)
+            )]
+            nsfw: bool,
+
+            /// Forum specific configuration
+            #[cfg_attr(feature = "serde", serde(default))]
+            forum: ForumInformation,
+        },
+    }
+
+    /// Configuration for a forum channel
+    #[derive(Default)]
+    pub struct ForumInformation {
+        /// How posts are ordered by default
+        #[cfg_attr(feature = "serde", serde(default))]
+        pub default_sort: ForumSort,
+
+        /// Tags a post may be labelled with
+        #[cfg_attr(
+            feature = "serde",
+            serde(default, skip_serializing_if = "Vec::is_empty")
+        )]
+        pub available_tags: Vec<ForumTag>,
+
+        /// Whether a post must carry at least one tag
+        #[cfg_attr(
+            feature = "serde",
+            serde(default, skip_serializing_if = "crate::if_false")
+        )]
+        pub require_tag: bool,
+
+        /// Id of the most recently created post
+        #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+        pub last_activity_id: Option<String>,
+    }
+
+    /// A tag that can be applied to forum posts
+    pub struct ForumTag {
+        /// Unique Id within the channel
+        pub id: String,
+        /// Display name
+        pub name: String,
+        /// Colour, as a CSS colour string
+        #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
+        pub colour: Option<String>,
+    }
+
+    /// How forum posts are ordered
+    #[derive(Default)]
+    #[cfg_attr(feature = "rocket", derive(FromFormField))]
+    pub enum ForumSort {
+        /// Score decayed by age
+        #[default]
+        Hot,
+        /// Most recently created
+        New,
+        /// Highest score
+        Top,
+        /// Most recently commented on
+        Active,
     }
 
     /// Voice information for a channel
@@ -156,6 +253,9 @@ auto_derived!(
         pub voice: Option<VoiceInformation>,
         #[cfg_attr(feature = "serde", serde(skip_serializing_if = "Option::is_none"))]
         pub slowmode: Option<u64>,
+
+        /// Forum specific configuration
+        pub forum: Option<ForumInformation>,
     }
 
     /// Optional fields on channel object
@@ -237,6 +337,8 @@ auto_derived!(
         Text,
         /// Voice Channel
         Voice,
+        /// Forum Channel
+        Forum,
     }
 
     /// Create new server channel
@@ -330,7 +432,8 @@ impl Channel {
             Channel::DirectMessage { id, .. }
             | Channel::Group { id, .. }
             | Channel::SavedMessages { id, .. }
-            | Channel::TextChannel { id, .. } => id,
+            | Channel::TextChannel { id, .. }
+            | Channel::ForumChannel { id, .. } => id,
         }
     }
 
@@ -342,7 +445,9 @@ impl Channel {
         match self {
             Channel::DirectMessage { .. } => None,
             Channel::SavedMessages { .. } => Some("Saved Messages"),
-            Channel::TextChannel { name, .. } | Channel::Group { name, .. } => Some(name),
+            Channel::TextChannel { name, .. }
+            | Channel::ForumChannel { name, .. }
+            | Channel::Group { name, .. } => Some(name),
         }
     }
 }

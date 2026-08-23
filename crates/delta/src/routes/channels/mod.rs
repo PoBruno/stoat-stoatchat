@@ -4,6 +4,15 @@ use rocket::Route;
 mod channel_ack;
 mod channel_delete;
 mod channel_edit;
+mod forum_comment_create;
+mod forum_comment_edit;
+mod forum_post_create;
+mod forum_post_edit;
+mod forum_post_fetch;
+mod forum_post_query;
+mod forum_post_subscribe;
+mod forum_post_vote;
+mod forum_settings;
 mod channel_fetch;
 mod group_add_member;
 mod group_create;
@@ -37,6 +46,22 @@ pub fn routes() -> (Vec<Route>, OpenApi) {
         channel_delete::delete,
         channel_edit::edit,
         invite_create::create_invite,
+        forum_post_create::create_forum_post,
+        forum_post_query::query_forum_posts,
+        forum_post_fetch::fetch_forum_post,
+        forum_post_edit::edit_forum_post,
+        forum_post_edit::delete_forum_post,
+        forum_post_vote::upvote_forum_post,
+        forum_post_vote::remove_forum_post_upvote,
+        forum_comment_create::create_forum_comment,
+        forum_comment_create::query_forum_comments,
+        forum_comment_edit::edit_forum_comment,
+        forum_comment_edit::delete_forum_comment,
+        forum_comment_edit::upvote_forum_comment,
+        forum_comment_edit::remove_forum_comment_upvote,
+        forum_settings::edit_forum_settings,
+        forum_post_subscribe::subscribe_forum_post,
+        forum_post_subscribe::unsubscribe_forum_post,
         message_send::message_send,
         message_query::query,
         message_search::search,

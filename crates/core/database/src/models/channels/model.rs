@@ -116,6 +116,82 @@ auto_derived!(
             #[serde(skip_serializing_if = "Option::is_none")]
             slowmode: Option<u64>,
         },
+        /// Forum channel belonging to a server
+        ///
+        /// Has no message stream; content lives in forum_posts / forum_comments.
+        ForumChannel {
+            /// Unique Id
+            #[serde(rename = "_id")]
+            id: String,
+            /// Id of the server this channel belongs to
+            server: String,
+
+            /// Display name of the channel
+            name: String,
+            /// Channel description
+            #[serde(skip_serializing_if = "Option::is_none")]
+            description: Option<String>,
+
+            /// Custom icon attachment
+            #[serde(skip_serializing_if = "Option::is_none")]
+            icon: Option<File>,
+
+            /// Default permissions assigned to users in this channel
+            #[serde(skip_serializing_if = "Option::is_none")]
+            default_permissions: Option<OverrideField>,
+            /// Permissions assigned based on role to this channel
+            #[serde(
+                default = "HashMap::<String, OverrideField>::new",
+                skip_serializing_if = "HashMap::<String, OverrideField>::is_empty"
+            )]
+            role_permissions: HashMap<String, OverrideField>,
+
+            /// Whether this channel is marked as not safe for work
+            #[serde(skip_serializing_if = "crate::if_false", default)]
+            nsfw: bool,
+
+            /// Forum specific configuration
+            #[serde(default)]
+            forum: ForumInformation,
+        },
+    }
+
+    #[derive(Default)]
+    pub struct ForumInformation {
+        /// How posts are ordered by default
+        #[serde(default)]
+        pub default_sort: ForumSort,
+
+        /// Tags a post may be labelled with
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        pub available_tags: Vec<ForumTag>,
+
+        /// Whether a post must carry at least one tag
+        #[serde(default, skip_serializing_if = "crate::if_false")]
+        pub require_tag: bool,
+
+        /// Id of the most recently created post
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub last_activity_id: Option<String>,
+    }
+
+    pub struct ForumTag {
+        /// Unique Id within the channel
+        pub id: String,
+        /// Display name
+        pub name: String,
+        /// Colour, as a CSS colour string
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub colour: Option<String>,
+    }
+
+    #[derive(Default)]
+    pub enum ForumSort {
+        #[default]
+        Hot,
+        New,
+        Top,
+        Active,
     }
 
     #[derive(Default)]
@@ -153,6 +229,10 @@ auto_derived!(
         pub voice: Option<VoiceInformation>,
         #[serde(skip_serializing_if = "Option::is_none")]
         pub slowmode: Option<u64>,
+
+        /// Forum specific configuration
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pub forum: Option<ForumInformation>,
     }
 
     /// Optional fields on channel object
@@ -228,6 +308,17 @@ impl Channel {
                 nsfw: data.nsfw.unwrap_or(false),
                 voice: Some(data.voice.unwrap_or_default().into()),
                 slowmode: None,
+            },
+            v0::LegacyServerChannelType::Forum => Channel::ForumChannel {
+                id: id.clone(),
+                server: server.id.to_owned(),
+                name: data.name,
+                description: data.description,
+                icon: None,
+                default_permissions: None,
+                role_permissions: HashMap::new(),
+                nsfw: data.nsfw.unwrap_or(false),
+                forum: Default::default(),
             },
         };
 
@@ -433,14 +524,17 @@ impl Channel {
             Channel::DirectMessage { id, .. }
             | Channel::Group { id, .. }
             | Channel::SavedMessages { id, .. }
-            | Channel::TextChannel { id, .. } => id,
+            | Channel::TextChannel { id, .. }
+            | Channel::ForumChannel { id, .. } => id,
         }
     }
 
     /// Clone this channel's server id
     pub fn server(&self) -> Option<&str> {
         match self {
-            Channel::TextChannel { server, .. } => Some(server),
+            Channel::TextChannel { server, .. } | Channel::ForumChannel { server, .. } => {
+                Some(server)
+            }
             _ => None,
         }
     }
@@ -467,6 +561,12 @@ impl Channel {
     ) -> Result<()> {
         match self {
             Channel::TextChannel {
+                id,
+                server,
+                role_permissions,
+                ..
+            }
+            | Channel::ForumChannel {
                 id,
                 server,
                 role_permissions,
@@ -517,7 +617,7 @@ impl Channel {
             clear: remove.into_iter().map(|v| v.into()).collect(),
         }
         .p(match self {
-            Self::TextChannel { server, .. } => server.clone(),
+            Self::TextChannel { server, .. } | Self::ForumChannel { server, .. } => server.clone(),
             _ => id,
         })
         .await;
@@ -529,19 +629,27 @@ impl Channel {
     pub fn remove_field(&mut self, field: &FieldsChannel) {
         match field {
             FieldsChannel::Description => match self {
-                Self::Group { description, .. } | Self::TextChannel { description, .. } => {
+                Self::Group { description, .. }
+                | Self::TextChannel { description, .. }
+                | Self::ForumChannel { description, .. } => {
                     description.take();
                 }
                 _ => {}
             },
             FieldsChannel::Icon => match self {
-                Self::Group { icon, .. } | Self::TextChannel { icon, .. } => {
+                Self::Group { icon, .. }
+                | Self::TextChannel { icon, .. }
+                | Self::ForumChannel { icon, .. } => {
                     icon.take();
                 }
                 _ => {}
             },
             FieldsChannel::DefaultPermissions => match self {
                 Self::TextChannel {
+                    default_permissions,
+                    ..
+                }
+                | Self::ForumChannel {
                     default_permissions,
                     ..
                 } => {
@@ -650,6 +758,47 @@ impl Channel {
 
                 if let Some(v) = partial.voice {
                     voice.replace(v);
+                }
+            }
+            Self::ForumChannel {
+                name,
+                description,
+                icon,
+                nsfw,
+                default_permissions,
+                role_permissions,
+                forum,
+                ..
+            } => {
+                if let Some(v) = partial.name {
+                    *name = v;
+                }
+
+                if let Some(v) = partial.description {
+                    description.replace(v);
+                }
+
+                if let Some(v) = partial.icon {
+                    icon.replace(v);
+                }
+
+                if let Some(v) = partial.nsfw {
+                    *nsfw = v;
+                }
+
+                if let Some(v) = partial.role_permissions {
+                    *role_permissions = v;
+                }
+
+                if let Some(v) = partial.default_permissions {
+                    default_permissions.replace(v);
+                }
+
+                // Without this the route returns a stale channel after editing
+                // the forum config, and the client keeps showing the old tags
+                // until a reload.
+                if let Some(v) = partial.forum {
+                    *forum = v;
                 }
             }
         }
@@ -765,6 +914,41 @@ impl Channel {
                 if partial.slowmode.is_some() {
                     before.slowmode = *slowmode;
                 }
+            }
+            Channel::ForumChannel {
+                name,
+                description,
+                icon,
+                default_permissions,
+                role_permissions,
+                nsfw,
+                ..
+            } => {
+                if partial.name.is_some() {
+                    before.name = Some(name.clone());
+                };
+
+                if partial.description.is_some() || remove.contains(&FieldsChannel::Description) {
+                    before.description = description.clone();
+                };
+
+                if partial.icon.is_some() || remove.contains(&FieldsChannel::Icon) {
+                    before.icon = icon.clone();
+                };
+
+                if partial.default_permissions.is_some()
+                    || remove.contains(&FieldsChannel::DefaultPermissions)
+                {
+                    before.default_permissions = *default_permissions;
+                };
+
+                if partial.role_permissions.is_some() {
+                    before.role_permissions = Some(role_permissions.clone());
+                };
+
+                if partial.nsfw.is_some() {
+                    before.nsfw = Some(*nsfw);
+                };
             }
         }
 

@@ -8,6 +8,8 @@ mod channels;
 mod emojis;
 mod file_hashes;
 mod files;
+mod forum_comments;
+mod forum_posts;
 mod messages;
 mod policy_changes;
 mod ratelimit_events;
@@ -33,6 +35,8 @@ pub use channels::*;
 pub use emojis::*;
 pub use file_hashes::*;
 pub use files::*;
+pub use forum_comments::*;
+pub use forum_posts::*;
 pub use messages::*;
 pub use policy_changes::*;
 pub use ratelimit_events::*;
@@ -66,6 +70,8 @@ pub trait AbstractDatabase:
     + emojis::AbstractEmojis
     + file_hashes::AbstractAttachmentHashes
     + files::AbstractAttachments
+    + forum_comments::AbstractForumComments
+    + forum_posts::AbstractForumPosts
     + messages::AbstractMessages
     + policy_changes::AbstractPolicyChange
     + ratelimit_events::AbstractRatelimitEvents

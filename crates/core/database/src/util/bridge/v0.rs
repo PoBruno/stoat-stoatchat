@@ -204,6 +204,27 @@ impl From<crate::Channel> for Channel {
                 voice: voice.map(|voice| voice.into()),
                 slowmode,
             },
+            crate::Channel::ForumChannel {
+                id,
+                server,
+                name,
+                description,
+                icon,
+                default_permissions,
+                role_permissions,
+                nsfw,
+                forum,
+            } => Channel::ForumChannel {
+                id,
+                server,
+                name,
+                description,
+                icon: icon.map(|file| file.into()),
+                default_permissions,
+                role_permissions,
+                nsfw,
+                forum: forum.into(),
+            },
         }
     }
 }
@@ -270,6 +291,27 @@ impl From<Channel> for crate::Channel {
                 voice: voice.map(|voice| voice.into()),
                 slowmode,
             },
+            Channel::ForumChannel {
+                id,
+                server,
+                name,
+                description,
+                icon,
+                default_permissions,
+                role_permissions,
+                nsfw,
+                forum,
+            } => crate::Channel::ForumChannel {
+                id,
+                server,
+                name,
+                description,
+                icon: icon.map(|file| file.into()),
+                default_permissions,
+                role_permissions,
+                nsfw,
+                forum: forum.into(),
+            },
         }
     }
 }
@@ -289,6 +331,7 @@ impl From<crate::PartialChannel> for PartialChannel {
             last_message_id: value.last_message_id,
             voice: value.voice.map(|voice| voice.into()),
             slowmode: value.slowmode,
+            forum: value.forum.map(|forum| forum.into()),
         }
     }
 }
@@ -308,6 +351,7 @@ impl From<PartialChannel> for crate::PartialChannel {
             last_message_id: value.last_message_id,
             voice: value.voice.map(|voice| voice.into()),
             slowmode: value.slowmode,
+            forum: value.forum.map(|forum| forum.into()),
         }
     }
 }
@@ -1427,6 +1471,118 @@ impl From<crate::VoiceInformation> for VoiceInformation {
     fn from(value: crate::VoiceInformation) -> Self {
         VoiceInformation {
             max_users: value.max_users,
+        }
+    }
+}
+
+impl From<crate::ForumSort> for ForumSort {
+    fn from(value: crate::ForumSort) -> Self {
+        match value {
+            crate::ForumSort::Hot => ForumSort::Hot,
+            crate::ForumSort::New => ForumSort::New,
+            crate::ForumSort::Top => ForumSort::Top,
+            crate::ForumSort::Active => ForumSort::Active,
+        }
+    }
+}
+
+impl From<ForumSort> for crate::ForumSort {
+    fn from(value: ForumSort) -> Self {
+        match value {
+            ForumSort::Hot => crate::ForumSort::Hot,
+            ForumSort::New => crate::ForumSort::New,
+            ForumSort::Top => crate::ForumSort::Top,
+            ForumSort::Active => crate::ForumSort::Active,
+        }
+    }
+}
+
+impl From<crate::ForumTag> for ForumTag {
+    fn from(value: crate::ForumTag) -> Self {
+        ForumTag {
+            id: value.id,
+            name: value.name,
+            colour: value.colour,
+        }
+    }
+}
+
+impl From<ForumTag> for crate::ForumTag {
+    fn from(value: ForumTag) -> Self {
+        crate::ForumTag {
+            id: value.id,
+            name: value.name,
+            colour: value.colour,
+        }
+    }
+}
+
+impl From<crate::ForumInformation> for ForumInformation {
+    fn from(value: crate::ForumInformation) -> Self {
+        ForumInformation {
+            default_sort: value.default_sort.into(),
+            available_tags: value.available_tags.into_iter().map(Into::into).collect(),
+            require_tag: value.require_tag,
+            last_activity_id: value.last_activity_id,
+        }
+    }
+}
+
+impl From<crate::ForumComment> for ForumComment {
+    fn from(value: crate::ForumComment) -> Self {
+        ForumComment {
+            id: value.id,
+            post: value.post,
+            channel: value.channel,
+            author: value.author,
+            content: value.content,
+            attachments: value
+                .attachments
+                .map(|v| v.into_iter().map(Into::into).collect()),
+            parent: value.parent,
+            ancestors: value.ancestors,
+            upvoters: value.upvoters,
+            score: value.score,
+            edited: value.edited,
+            deleted_by: value.deleted_by,
+        }
+    }
+}
+
+impl From<crate::ForumPost> for ForumPost {
+    fn from(value: crate::ForumPost) -> Self {
+        ForumPost {
+            id: value.id,
+            channel: value.channel,
+            server: value.server,
+            author: value.author,
+            title: value.title,
+            content: value.content,
+            attachments: value
+                .attachments
+                .map(|v| v.into_iter().map(Into::into).collect()),
+            tags: value.tags,
+            upvoters: value.upvoters,
+            score: value.score,
+            comment_count: value.comment_count,
+            views: value.viewers.len() as i32,
+            subscribers: value.subscribers,
+            last_comment_at: value.last_comment_at,
+            pinned: value.pinned,
+            locked: value.locked,
+            edited: value.edited,
+            deleted_by: value.deleted_by,
+        }
+    }
+}
+
+impl From<ForumInformation> for crate::ForumInformation {
+    fn from(value: ForumInformation) -> Self {
+        crate::ForumInformation {
+            default_sort: value.default_sort.into(),
+            available_tags: value.available_tags.into_iter().map(Into::into).collect(),
+            require_tag: value.require_tag,
+            last_activity_id: value.last_activity_id,
         }
     }
 }

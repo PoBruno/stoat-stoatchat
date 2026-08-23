@@ -50,12 +50,18 @@ pub async fn set_default_channel_permissions(
                 return Err(create_error!(InvalidOperation));
             }
         }
-        Channel::TextChannel {
-            id,
-            server,
-            default_permissions,
-            ..
-        } => {
+            Channel::TextChannel {
+                id,
+                server,
+                default_permissions,
+                ..
+            }
+            | Channel::ForumChannel {
+                id,
+                server,
+                default_permissions,
+                ..
+            } => {
             if let DataDefaultChannelPermissions::Field { permissions: field } = data {
                 permissions
                     .throw_permission_override(default_permissions.map(|x| x.into()), &field)

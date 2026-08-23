@@ -79,6 +79,23 @@ pub async fn delete(
 
             delete_voice_channel(voice_client, &UserVoiceChannel::from_channel(&channel)).await?;
         }
+        Channel::ForumChannel { name, server, .. } => {
+            permissions.throw_if_lacking_channel_permission(ChannelPermission::ManageChannel)?;
+
+            // Posts and comments live in their own collections, so dropping
+            // the channel does not take them with it.
+            db.delete_forum_comments_in_channel(channel.id()).await?;
+            db.delete_forum_posts_in_channel(channel.id()).await?;
+
+            channel.delete(db).await?;
+
+            AuditLogEntryAction::ChannelDelete {
+                channel: channel.id().to_string(),
+                name: name.clone(),
+            }
+            .insert(db, server.clone(), reason, user.id, None)
+            .await;
+        }
     };
 
     Ok(EmptyResponse)

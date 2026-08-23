@@ -17,6 +17,7 @@ extern crate revolt_optional_struct;
 extern crate revolt_result;
 
 pub use iso8601_timestamp;
+pub use ulid;
 
 #[cfg(feature = "mongodb")]
 pub use mongodb;

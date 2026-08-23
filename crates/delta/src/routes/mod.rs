@@ -111,8 +111,9 @@ fn custom_openapi_spec() -> OpenApi {
               "Channel Information",
               "Channel Invites",
               "Channel Permissions",
-              "Messaging",
-              "Interactions",
+                "Messaging",
+                "Forum",
+                "Interactions",
               "Groups",
               "Voice",
               "Webhooks",
@@ -256,8 +257,13 @@ fn custom_openapi_spec() -> OpenApi {
                 description: Some("Send and manipulate messages".to_owned()),
                 ..Default::default()
             },
-            Tag {
-                name: "Groups".to_owned(),
+              Tag {
+                  name: "Forum".to_owned(),
+                  description: Some("Create and read forum posts".to_owned()),
+                  ..Default::default()
+              },
+              Tag {
+                  name: "Groups".to_owned(),
                 description: Some("Create, invite users and manipulate groups".to_owned()),
                 ..Default::default()
             },

@@ -498,6 +498,12 @@ impl Message {
                     user_mentions.retain(|m| recipients_hash.contains(m));
                     role_mentions.clear();
                 }
+                // A forum channel carries no message stream, so a message can
+                // never legitimately live in one and has nobody to mention.
+                Channel::ForumChannel { .. } => {
+                    user_mentions.clear();
+                    role_mentions.clear();
+                }
                 Channel::TextChannel { ref server, .. } => {
                     let mentions_vec = Vec::from_iter(user_mentions.iter().cloned());
 

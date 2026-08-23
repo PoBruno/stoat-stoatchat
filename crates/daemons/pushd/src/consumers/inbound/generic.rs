@@ -35,22 +35,26 @@ impl Consumer for GenericConsumer {
 
     /// This consumer handles delegating messages into their respective platform queues.
     async fn consume(&self, delivery: Delivery) -> Result<()> {
-        let payload: MessageSentPayload = serde_json::from_slice(&delivery.data)?;
+        // Era `MessageSentPayload` aqui, mas quem publica nesta fila
+        // (`AMQP::generic_message`) manda `GenericPayload` — formatos
+        // diferentes, entao toda entrega falhava na desserializacao. Nada
+        // dependia disso porque nenhum caller existia ate agora.
+        let payload: GenericPayload = serde_json::from_slice(&delivery.data)?;
 
-        debug!("Received message event on origin");
+        debug!("Received generic event on origin");
 
+        // `GenericPayload` carrega um destinatario so, ao contrario do
+        // payload de mensagem, que carrega a lista inteira.
         if let Ok(sessions) = self
             .db
-            .fetch_sessions_with_subscription(&payload.users)
+            .fetch_sessions_with_subscription(&[payload.user.id.clone()])
             .await
         {
             let config = revolt_config::config().await;
             for session in sessions {
                 if let Some(sub) = session.subscription {
                     let mut sendable = PayloadToService {
-                        notification: PayloadKind::MessageNotification(
-                            payload.notification.clone(),
-                        ),
+                        notification: PayloadKind::Generic(payload.clone()),
                         token: sub.auth,
                         user_id: session.user_id,
                         session_id: session.id,

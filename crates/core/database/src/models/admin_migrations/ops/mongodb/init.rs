@@ -48,6 +48,14 @@ pub async fn create_database(db: &MongoDb) {
         .await
         .expect("Failed to create channel_webhooks collection.");
 
+    db.create_collection("forum_posts")
+        .await
+        .expect("Failed to create forum_posts collection.");
+
+    db.create_collection("forum_comments")
+        .await
+        .expect("Failed to create forum_comments collection.");
+
     db.create_collection("migrations")
         .await
         .expect("Failed to create migrations collection.");
@@ -198,6 +206,93 @@ pub async fn create_database(db: &MongoDb) {
     })
     .await
     .expect("Failed to create channel_unreads index.");
+
+    // Feed indexes: one per sort, each prefixed by `pinned` so pinned posts
+    // float to the top, and each ending in `_id` for cursor paging.
+    db.run_command(doc! {
+        "createIndexes": "forum_posts",
+        "indexes": [
+            {
+                "key": {
+                    "channel": 1_i32,
+                    "pinned": -1_i32,
+                    "hot_rank": -1_i32,
+                    "_id": -1_i32,
+                },
+                "name": "channel_hot"
+            },
+            {
+                "key": {
+                    "channel": 1_i32,
+                    "pinned": -1_i32,
+                    "_id": -1_i32,
+                },
+                "name": "channel_new"
+            },
+            {
+                "key": {
+                    "channel": 1_i32,
+                    "pinned": -1_i32,
+                    "score": -1_i32,
+                    "_id": -1_i32,
+                },
+                "name": "channel_top"
+            },
+            {
+                "key": {
+                    "channel": 1_i32,
+                    "pinned": -1_i32,
+                    "last_comment_at": -1_i32,
+                    "_id": -1_i32,
+                },
+                "name": "channel_active"
+            },
+            {
+                "key": {
+                    "channel": 1_i32,
+                    "tags": 1_i32,
+                    "_id": -1_i32,
+                },
+                "name": "channel_tags"
+            },
+            {
+                "key": {
+                    "author": 1_i32,
+                },
+                "name": "author"
+            }
+        ]
+    })
+    .await
+    .expect("Failed to create forum_posts index.");
+
+    db.run_command(doc! {
+        "createIndexes": "forum_comments",
+        "indexes": [
+            {
+                "key": { "post": 1_i32, "_id": 1_i32 },
+                "name": "post_old"
+            },
+            {
+                "key": { "post": 1_i32, "score": -1_i32, "_id": 1_i32 },
+                "name": "post_top"
+            },
+            {
+                "key": { "ancestors": 1_i32 },
+                "name": "ancestors"
+            },
+            {
+                "key": { "channel": 1_i32 },
+                "name": "channel"
+            },
+            {
+                "key": { "author": 1_i32 },
+                "name": "author"
+            }
+        ]
+    })
+    .await
+    .expect("Failed to create forum_comments index.");
 
     db.run_command(doc! {
         "createIndexes": "server_members",

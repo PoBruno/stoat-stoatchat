@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 use revolt_models::v0::{
     AppendMessage, Channel, ChannelSlowmode, ChannelUnread, ChannelVoiceState, Emoji,
     FieldsChannel, FieldsMember, FieldsMessage, FieldsRole, FieldsServer, FieldsUser,
-    FieldsWebhook, Member, MemberCompositeKey, Message, PartialChannel, PartialEmoji,
+    FieldsWebhook, ForumComment, ForumPost, Member, MemberCompositeKey, Message, PartialChannel, PartialEmoji,
     PartialMember, PartialMessage, PartialRole, PartialServer, PartialUser, PartialUserVoiceState,
     PartialWebhook, PolicyChange, RemovalIntention, Report, Server, User, UserSettings,
     UserVoiceState, Webhook,
@@ -118,6 +118,12 @@ pub enum EventV1 {
         channel: String,
         append: AppendMessage,
     },
+
+    /// New forum post
+    ForumPostCreate(ForumPost),
+
+    /// New forum comment
+    ForumCommentCreate(ForumComment),
 
     /// Delete message
     MessageDelete {
