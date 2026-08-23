@@ -13,6 +13,7 @@ mod forum_post_query;
 mod forum_post_subscribe;
 mod forum_post_vote;
 mod forum_settings;
+mod sound_play;
 mod channel_fetch;
 mod group_add_member;
 mod group_create;
@@ -60,6 +61,7 @@ pub fn routes() -> (Vec<Route>, OpenApi) {
         forum_comment_edit::upvote_forum_comment,
         forum_comment_edit::remove_forum_comment_upvote,
         forum_settings::edit_forum_settings,
+        sound_play::play_sound,
         forum_post_subscribe::subscribe_forum_post,
         forum_post_subscribe::unsubscribe_forum_post,
         message_send::message_send,

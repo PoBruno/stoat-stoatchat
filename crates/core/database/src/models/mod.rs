@@ -6,6 +6,7 @@ mod channel_unreads;
 mod channel_webhooks;
 mod channels;
 mod emojis;
+mod sounds;
 mod file_hashes;
 mod files;
 mod forum_comments;
@@ -33,6 +34,7 @@ pub use channel_unreads::*;
 pub use channel_webhooks::*;
 pub use channels::*;
 pub use emojis::*;
+pub use sounds::*;
 pub use file_hashes::*;
 pub use files::*;
 pub use forum_comments::*;
@@ -68,6 +70,7 @@ pub trait AbstractDatabase:
     + channel_unreads::AbstractChannelUnreads
     + channel_webhooks::AbstractWebhooks
     + emojis::AbstractEmojis
+    + sounds::AbstractSounds
     + file_hashes::AbstractAttachmentHashes
     + files::AbstractAttachments
     + forum_comments::AbstractForumComments

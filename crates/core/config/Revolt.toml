@@ -237,6 +237,10 @@ message_embeds = 5
 message_replies = 5
 message_reactions = 20
 server_emoji = 100
+# Sons do soundboard por servidor. Generoso de proposito: o pedido era
+# "infinito", e 5000 e alto o bastante para nunca incomodar sem abrir mao de
+# ter um teto que impeca upload automatizado de encher o disco.
+server_sounds = 5000
 server_roles = 200
 server_channels = 200
 
@@ -289,6 +293,9 @@ backgrounds = 6_000_000
 icons = 2_500_000
 banners = 6_000_000
 emojis = 500_000
+# Sons do soundboard. Generoso de proposito: 8 MB cobre clipe longo em
+# qualidade decente, e o teto de corpo da requisicao ainda e 20 MB.
+sounds = 8_000_000
 
 [features.limits.default]
 # Limits imposed on users by default
@@ -328,6 +335,9 @@ backgrounds = 6_000_000
 icons = 2_500_000
 banners = 6_000_000
 emojis = 500_000
+# Sons do soundboard. Generoso de proposito: 8 MB cobre clipe longo em
+# qualidade decente, e o teto de corpo da requisicao ainda e 20 MB.
+sounds = 8_000_000
 
 [features.advanced]
 # The max amount of messages the rabbitmq provider/db mention adder job will delay for before forcing handling of a channel.

@@ -96,6 +96,7 @@ pub struct GlobalLimits {
     message_reactions: i64,
     /// max server emoji
     server_emoji: i64,
+    server_sounds: i64,
     /// max server roles
     server_roles: i64,
     /// max server channels
@@ -238,6 +239,7 @@ pub async fn root() -> Result<Json<RevoltConfig>> {
                     message_replies: config.features.limits.global.message_replies as i64,
                     message_reactions: config.features.limits.global.message_reactions as i64,
                     server_emoji: config.features.limits.global.server_emoji as i64,
+                server_sounds: config.features.limits.global.server_sounds as i64,
                     server_roles: config.features.limits.global.server_roles as i64,
                     server_channels: config.features.limits.global.server_channels as i64,
                     body_limit_size: config.features.limits.global.body_limit_size as i64,

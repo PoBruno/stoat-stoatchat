@@ -7,8 +7,8 @@ use revolt_models::v0::{
     FieldsChannel, FieldsMember, FieldsMessage, FieldsRole, FieldsServer, FieldsUser,
     FieldsWebhook, ForumComment, ForumPost, Member, MemberCompositeKey, Message, PartialChannel, PartialEmoji,
     PartialMember, PartialMessage, PartialRole, PartialServer, PartialUser, PartialUserVoiceState,
-    PartialWebhook, PolicyChange, RemovalIntention, Report, Server, User, UserSettings,
-    UserVoiceState, Webhook,
+    PartialSound, PartialWebhook, PolicyChange, RemovalIntention, Report, Server, Sound, User,
+    UserSettings, UserVoiceState, Webhook,
 };
 
 use crate::{Account, Database, Session};
@@ -272,6 +272,30 @@ pub enum EventV1 {
     /// Delete emoji
     EmojiDelete {
         id: String,
+    },
+
+    /// New soundboard sound
+    SoundCreate(Sound),
+
+    /// Update existing sound
+    SoundUpdate {
+        id: String,
+        data: PartialSound,
+    },
+
+    /// Delete sound
+    SoundDelete {
+        id: String,
+    },
+
+    /// Someone played a sound in a voice channel
+    ///
+    /// The LiveKit data channel cannot carry this: `can_publish_data` is false
+    /// on the token and voice-ingress disconnects anyone publishing data.
+    SoundPlay {
+        channel_id: String,
+        sound_id: String,
+        user_id: String,
     },
 
     /// New report

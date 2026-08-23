@@ -393,6 +393,37 @@ impl From<crate::Emoji> for Emoji {
     }
 }
 
+impl From<crate::Sound> for Sound {
+    fn from(value: crate::Sound) -> Self {
+        Sound {
+            id: value.id,
+            parent: value.parent.into(),
+            creator_id: value.creator_id,
+            name: value.name,
+            category: value.category,
+            duration: value.duration,
+        }
+    }
+}
+
+impl From<crate::SoundParent> for SoundParent {
+    fn from(value: crate::SoundParent) -> Self {
+        match value {
+            crate::SoundParent::Detached => SoundParent::Detached,
+            crate::SoundParent::Server { id } => SoundParent::Server { id },
+        }
+    }
+}
+
+impl From<SoundParent> for crate::SoundParent {
+    fn from(value: SoundParent) -> Self {
+        match value {
+            SoundParent::Detached => crate::SoundParent::Detached,
+            SoundParent::Server { id } => crate::SoundParent::Server { id },
+        }
+    }
+}
+
 impl From<crate::EmojiParent> for EmojiParent {
     fn from(value: crate::EmojiParent) -> Self {
         match value {

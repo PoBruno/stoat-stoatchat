@@ -130,6 +130,39 @@ pub enum Tag {
     icons,
     banners,
     emojis,
+    sounds,
+}
+
+impl Tag {
+    /// Whether this tag accepts a file with the given metadata.
+    ///
+    /// Era um `if` binario aqui: "se nao for attachments, so aceita imagem".
+    /// Isso barrava qualquer tag nova que nao fosse de imagem, e o soundboard
+    /// e exatamente esse caso. Uma tabela explicita torna a regra legivel e
+    /// obriga a decidir conscientemente ao adicionar uma tag.
+    fn accepts(&self, metadata: &Metadata) -> bool {
+        match self {
+            // Anexo de mensagem aceita qualquer coisa.
+            Tag::attachments => true,
+            // Sons sao audio, e nada alem disso: aceitar imagem aqui deixaria
+            // o soundboard cheio de arquivo que nunca toca.
+            Tag::sounds => matches!(metadata, Metadata::Audio),
+            // Todo o resto e imagem.
+            Tag::avatars
+            | Tag::backgrounds
+            | Tag::icons
+            | Tag::banners
+            | Tag::emojis => matches!(metadata, Metadata::Image { .. }),
+        }
+    }
+
+    /// Whether the file id doubles as the id of the object it becomes.
+    ///
+    /// Emoji e som usam o id do arquivo como id do proprio objeto, entao ele
+    /// precisa carregar timestamp — dai ULID em vez de nanoid.
+    fn id_is_object_id(&self) -> bool {
+        matches!(self, Tag::emojis | Tag::sounds)
+    }
 }
 
 /// Request body for upload
@@ -204,10 +237,17 @@ async fn upload_file(
 
     // Get user's file upload limits
     let limits = user.limits().await;
-    let size_limit = *limits
-        .file_upload_size_limit
-        .get(tag.clone().into())
-        .expect("size limit");
+    let tag_name: &'static str = tag.clone().into();
+    // Era `.expect("size limit")`, que derrubava o autumn inteiro quando uma
+    // instancia self-hosted nao tinha a chave da tag no Revolt.toml. Uma tag
+    // nova (como `sounds`) transformava upload em queda de servico.
+    let size_limit = match limits.file_upload_size_limit.get(tag_name) {
+        Some(limit) => *limit,
+        None => {
+            tracing::error!("no file_upload_size_limit configured for tag {tag_name}");
+            return Err(create_error!(FileTypeNotAllowed));
+        }
+    };
 
     if original_file_size > size_limit {
         return Err(create_error!(FileTooLarge { max: size_limit }));
@@ -221,7 +261,7 @@ async fn upload_file(
     };
 
     // Generate an ID for this file
-    let id = if matches!(tag, Tag::emojis) {
+    let id = if tag.id_is_object_id() {
         ulid::Ulid::new().to_string()
     } else {
         nanoid::nanoid!(42)
@@ -243,8 +283,8 @@ async fn upload_file(
     // Determine metadata for the file
     let metadata = generate_metadata(&file.contents, mime_type);
 
-    // Block non-images for non-attachment uploads
-    if !matches!(tag, Tag::attachments) && !matches!(metadata, Metadata::Image { .. }) {
+    // Reject file types the tag does not accept
+    if !tag.accepts(&metadata) {
         return Err(create_error!(FileTypeNotAllowed));
     }
 

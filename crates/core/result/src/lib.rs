@@ -118,6 +118,9 @@ pub enum ErrorType {
     TooManyEmoji {
         max: usize,
     },
+    TooManySounds {
+        max: usize,
+    },
     TooManyRoles {
         max: usize,
     },

@@ -6,7 +6,8 @@ use crate::{
     Account, AccountInvite, AuditLogEntry, Bot, Channel, ChannelCompositeKey, ChannelUnread, Emoji,
     File, FileHash, ForumComment, ForumPost, Invite, MFATicket, Member, MemberCompositeKey, Message,
     PolicyChange,
-    RatelimitEvent, Report, Server, ServerBan, Session, Snapshot, User, UserSettings, Webhook,
+    RatelimitEvent, Report, Server, ServerBan, Session, Snapshot, Sound, User, UserSettings,
+    Webhook,
 };
 
 database_derived!(
@@ -20,6 +21,7 @@ database_derived!(
         pub channel_unreads: Arc<Mutex<HashMap<ChannelCompositeKey, ChannelUnread>>>,
         pub channel_webhooks: Arc<Mutex<HashMap<String, Webhook>>>,
         pub emojis: Arc<Mutex<HashMap<String, Emoji>>>,
+    pub sounds: Arc<Mutex<HashMap<String, Sound>>>,
         pub file_hashes: Arc<Mutex<HashMap<String, FileHash>>>,
     pub files: Arc<Mutex<HashMap<String, File>>>,
     pub forum_comments: Arc<Mutex<HashMap<String, ForumComment>>>,

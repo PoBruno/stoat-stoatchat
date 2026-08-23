@@ -167,6 +167,16 @@ pub fn get_allowed_sources(
         allowed_sources.extend(["camera", "screen_share", "screen_share_audio"]);
     };
 
+    // Soundboard viaja como uma track de audio a parte, publicada com
+    // `Track.Source.Unknown` — o LiveKit nao tem uma fonte propria para isso e
+    // aceita "unknown" na whitelist (verificado por spike).
+    //
+    // Track separada, e nao mixada no microfone, para o som continuar tocando
+    // com o mic mutado e para o ouvinte poder ter volume proprio.
+    if permissions.has(ChannelPermission::UseSoundboard as u64) {
+        allowed_sources.push("unknown")
+    };
+
     allowed_sources
 }
 
