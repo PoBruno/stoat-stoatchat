@@ -268,6 +268,10 @@ mod test {
             last_message_id: None,
             voice: None,
             slowmode: None,
+            // Acrescentado junto com o canal de fórum. `PartialChannel` não
+            // tem Default, então todo inicializador precisa listar o campo —
+            // é por isso que este teste parou de compilar.
+            forum: None,
         };
         locked_channel
             .update(&harness.db, partial, vec![])

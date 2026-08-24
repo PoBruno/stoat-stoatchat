@@ -6,6 +6,33 @@ use revolt_models::v0::{
     BandcampType, Image, ImageSize, LightspeedType, Special, TwitchType, Video, WebsiteMetadata,
 };
 use scraper::{Html, Selector};
+use url::Url;
+
+/// Convert all URLs to absolute form
+fn url_to_absolute(page_url: &str, url: String) -> String {
+    if url.starts_with("http") && url.contains("://") {
+        //External
+        return url;
+    } else if url.starts_with("//") {
+        // Protocol-relative: `//host/path` inherits the page's scheme.
+        // This has to come before the check below, since such a URL also
+        // starts with a slash and would otherwise be appended to the page's
+        // own origin, yielding https://page.example//cdn.example/img.png
+        return match Url::parse(page_url) {
+            Ok(page) => format!("{}:{}", page.scheme(), url),
+            Err(_) => String::new(),
+        };
+    } else if url.starts_with('/') {
+        //Absolute
+        let page = Url::parse(page_url);
+        if page.is_err() {
+            return "".to_string();
+        }
+        return format!("{}{}", &page.unwrap().origin().unicode_serialization(), url);
+    }
+    //Relative
+    format!("{}/{}", &page_url.trim_end_matches('/'), url)
+}
 
 /// Create website metadata from URL and document
 pub async fn create_website_embed(original_url: &str, document: &str) -> Option<WebsiteMetadata> {
@@ -61,14 +88,7 @@ pub async fn create_website_embed(original_url: &str, document: &str) -> Option<
             .or_else(|| meta.remove("twitter:image"))
             .or_else(|| meta.remove("twitter:image:src"))
             .map(|s| s.trim().to_owned())
-            .map(|mut url| {
-                // If relative URL, prepend root URL. Also if root URL ends with a slash, remove it.
-                if let Some(ch) = url.chars().next() {
-                    if ch == '/' {
-                        url = format!("{}{}", &original_url.trim_end_matches('/'), url);
-                    }
-                }
-
+            .map(|url| {
                 let mut size = ImageSize::Preview;
                 if let Some(card) = meta.remove("twitter:card") {
                     if &card == "summary_large_image" {
@@ -77,7 +97,7 @@ pub async fn create_website_embed(original_url: &str, document: &str) -> Option<
                 }
 
                 Image {
-                    url: url.to_owned(),
+                    url: url_to_absolute(original_url, url),
                     width: meta
                         .remove("og:image:width")
                         .unwrap_or_default()
@@ -96,42 +116,24 @@ pub async fn create_website_embed(original_url: &str, document: &str) -> Option<
             .or_else(|| meta.remove("og:video:url"))
             .or_else(|| meta.remove("og:video:secure_url"))
             .map(|s| s.trim().to_owned())
-            .map(|mut url| {
-                // If relative URL, prepend root URL. Also if root URL ends with a slash, remove it.
-                if let Some(ch) = url.chars().next() {
-                    if ch == '/' {
-                        url = format!("{}{}", &original_url.trim_end_matches('/'), url);
-                    }
-                }
-
-                Video {
-                    url: url.to_owned(),
-                    width: meta
-                        .remove("og:video:width")
-                        .unwrap_or_default()
-                        .parse()
-                        .unwrap_or(0),
-                    height: meta
-                        .remove("og:video:height")
-                        .unwrap_or_default()
-                        .parse()
-                        .unwrap_or(0),
-                }
+            .map(|url| Video {
+                url: url_to_absolute(original_url, url),
+                width: meta
+                    .remove("og:video:width")
+                    .unwrap_or_default()
+                    .parse()
+                    .unwrap_or(0),
+                height: meta
+                    .remove("og:video:height")
+                    .unwrap_or_default()
+                    .parse()
+                    .unwrap_or(0),
             }),
         icon_url: link
             .remove("apple-touch-icon")
             .or_else(|| link.remove("icon"))
             .map(|s| s.trim().to_owned())
-            .map(|mut v| {
-                // If relative URL, prepend root URL.
-                if let Some(ch) = v.chars().next() {
-                    if ch == '/' {
-                        v = format!("{}{}", &original_url.trim_end_matches('/'), v);
-                    }
-                }
-
-                v
-            }),
+            .map(|url| url_to_absolute(original_url, url)),
         colour: meta.remove("theme-color").map(|s| s.trim().to_owned()),
         site_name: meta.remove("og:site_name").map(|s| s.trim().to_owned()),
         url: meta
@@ -147,7 +149,9 @@ pub async fn create_website_embed(original_url: &str, document: &str) -> Option<
     // fetch video size if missing
     if metadata.special.is_none() {
         if let Some(Video { width, height, url }) = &metadata.video {
-            if width == &0 || height == &0 {
+            if url.is_empty() {
+                metadata.video.take();
+            } else if width == &0 || height == &0 {
                 metadata.video =
                     match crate::requests::Request::fetch_video_metadata(url, None).await {
                         Ok(Some(video)) => Some(video),
@@ -168,9 +172,12 @@ pub async fn create_website_embed(original_url: &str, document: &str) -> Option<
             width, height, url, ..
         }) = &metadata.image
         {
-            if width == &0 || height == &0 {
+            if url.is_empty() {
+                metadata.image.take();
+            } else if width == &0 || height == &0 {
+                let size = metadata.image.as_ref().unwrap().size.clone();
                 metadata.image =
-                    match crate::requests::Request::fetch_image_metadata(url, None).await {
+                    match crate::requests::Request::fetch_image_metadata(url, None, size).await {
                         Ok(Some(image)) => Some(image),
                         _ => None,
                     }
@@ -294,5 +301,56 @@ pub async fn populate_special(original_url: String, metadata: &mut WebsiteMetada
             Special::AppleMusic { .. } => metadata.colour = Some("#FA233B".to_string()),
             _ => {}
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::url_to_absolute;
+
+    const PAGINA: &str = "https://exemplo.com/blog/post";
+
+    #[test]
+    fn url_externa_passa_intacta() {
+        assert_eq!(
+            url_to_absolute(PAGINA, "https://cdn.outro.com/a.png".to_string()),
+            "https://cdn.outro.com/a.png"
+        );
+    }
+
+    #[test]
+    fn caminho_absoluto_usa_a_origem_e_nao_a_pagina() {
+        // Este e o bug que o conserto ataca: antes o codigo grudava o caminho
+        // no fim da URL da pagina, produzindo
+        // https://exemplo.com/blog/post/img/a.png
+        assert_eq!(
+            url_to_absolute(PAGINA, "/img/a.png".to_string()),
+            "https://exemplo.com/img/a.png"
+        );
+    }
+
+    #[test]
+    fn caminho_relativo_pende_da_pagina() {
+        assert_eq!(
+            url_to_absolute(PAGINA, "img/a.png".to_string()),
+            "https://exemplo.com/blog/post/img/a.png"
+        );
+    }
+
+    #[test]
+    fn pagina_invalida_com_caminho_absoluto_devolve_vazio() {
+        // Vazio e o sinal que o chamador usa para descartar a imagem em vez
+        // de embutir um link quebrado.
+        assert_eq!(url_to_absolute("nao e uma url", "/a.png".to_string()), "");
+    }
+
+    #[test]
+    fn url_sem_protocolo_aponta_para_o_host_dela() {
+        // `//host/caminho` herda o esquema da pagina. E comum em HTML, e cai
+        // no mesmo `starts_with('/')` do caminho absoluto.
+        assert_eq!(
+            url_to_absolute(PAGINA, "//cdn.outro.com/a.png".to_string()),
+            "https://cdn.outro.com/a.png"
+        );
     }
 }

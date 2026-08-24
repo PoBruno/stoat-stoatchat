@@ -1,4 +1,10 @@
-use super::{Channel, File, RE_COLOUR};
+use super::{Channel, File};
+
+// Só é usado dentro de `#[cfg_attr(feature = "validator", validate(...))]`,
+// então sem essa feature o import fica órfão e o lint de importação não
+// usada reprova o crate inteiro sob `-D warnings`.
+#[cfg(feature = "validator")]
+use super::RE_COLOUR;
 
 use revolt_permissions::{Override, OverrideField};
 use std::collections::HashMap;
