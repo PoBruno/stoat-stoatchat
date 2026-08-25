@@ -115,7 +115,23 @@ pub async fn ingress(
 
             let participants = voice_client.get_room_participants(node, channel_id).await?;
 
-            if participants.len() == 1 {
+            // Canal dedicado a voz nao ganha mensagem de "fulano iniciou
+            // chamada". Ali nao ha conversa para a mensagem entrar: o canal
+            // existe para falar, e o histórico so acumulava avisos que
+            // ninguem le.
+            //
+            // Conversa direta e grupo continuam recebendo: naqueles a chamada
+            // acontece dentro de um chat que existe por si, e o aviso e o
+            // unico registro de que ela houve.
+            let canal_dedicado_a_voz = matches!(
+                &channel,
+                Channel::TextChannel {
+                    voice: Some(_),
+                    ..
+                }
+            );
+
+            if participants.len() == 1 && !canal_dedicado_a_voz {
                 let user = Reference::from_unchecked(user_id).as_user(db).await?;
                 let message_id = Ulid::from_datetime(
                     Timestamp::UNIX_EPOCH
