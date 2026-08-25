@@ -104,6 +104,23 @@ impl MusicBoxState {
     }
 
     /// Marca que o agente está vivo.
+    ///
+    /// Devolve `true` quando ele estava ausente e acabou de voltar. Quem chama
+    /// usa isso para remandar o que estava tocando: um agente que reiniciou
+    /// perdeu a música, mas o servidor continuaria anunciando que toca — e a
+    /// barra andaria sozinha sobre um silêncio.
+    pub fn agent_checked_in_with_timeout(&self, timeout: Duration) -> bool {
+        let mut inner = self.inner.lock().expect("musicbox state");
+        let estava_ausente = inner
+            .agent_seen
+            .map(|quando| quando.elapsed() >= timeout)
+            .unwrap_or(true);
+
+        inner.agent_seen = Some(Instant::now());
+        estava_ausente
+    }
+
+    /// Marca que o agente está vivo, sem se importar com a volta.
     pub fn agent_checked_in(&self) {
         let mut inner = self.inner.lock().expect("musicbox state");
         inner.agent_seen = Some(Instant::now());
@@ -130,6 +147,21 @@ impl MusicBoxState {
 
         self.chegou_trabalho.notify_one();
         recebe
+    }
+
+    /// Enfileira trabalho sem esperar resposta.
+    ///
+    /// Existe para não cair na armadilha de `submit` seguido de `forget`: o
+    /// `forget` também tira o comando da fila de pendentes, então essa dupla
+    /// enfileira e apaga antes de o agente conseguir pegar — o pedido some
+    /// sem erro nenhum, e só o silêncio denuncia.
+    pub fn submit_detached(&self, command: Command) {
+        {
+            let mut inner = self.inner.lock().expect("musicbox state");
+            inner.pending.push_back(command);
+        }
+
+        self.chegou_trabalho.notify_one();
     }
 
     /// Pega trabalho, se houver algum agora.
@@ -226,6 +258,26 @@ mod test {
                 reason: None,
             }),
             "entregar para ninguem deve devolver false, nao fingir sucesso"
+        );
+    }
+
+    #[tokio::test]
+    async fn trabalho_solto_chega_ao_agente() {
+        let estado = MusicBoxState::new();
+        estado.submit_detached(Command {
+            id: "solto".to_string(),
+            kind: "play".to_string(),
+            query: String::new(),
+            limit: 0,
+            channel_id: Some("c1".to_string()),
+            track: None,
+        });
+
+        let pego = estado.take_command();
+        assert_eq!(
+            pego.expect("o comando precisa estar la").id,
+            "solto",
+            "enfileirar sem esperar resposta nao pode fazer o comando sumir"
         );
     }
 

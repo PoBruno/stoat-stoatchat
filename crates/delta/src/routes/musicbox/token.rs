@@ -72,7 +72,9 @@ pub async fn agent_token(
     // uma falha que apareceria só depois, num daemon separado.
     voice_client.create_room(&node, &channel).await?;
 
-    let token = voice_client.create_musicbox_token(&node, &channel).await?;
+    let token = voice_client
+        .create_musicbox_token(&node, db, &channel)
+        .await?;
 
     Ok(Json(AgentTokenResponse { token, url }))
 }

@@ -371,3 +371,6 @@ agent_secret = ""
 poll_seconds = 25
 # Sem batimento por este tempo, o agente é dado como ausente.
 agent_timeout_seconds = 60
+# Conta de bot que representa o MusicBox na chamada. Vazio usa uma identidade
+# sintética, sem nome nem avatar.
+bot_user_id = ""

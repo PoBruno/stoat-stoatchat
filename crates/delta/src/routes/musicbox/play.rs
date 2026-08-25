@@ -3,7 +3,7 @@ use std::time::Duration;
 use revolt_config::config;
 use revolt_database::{
     util::{permissions::DatabasePermissionQuery, reference::Reference},
-    Database, User,
+    Channel, Database, User,
 };
 use revolt_permissions::{calculate_channel_permissions, ChannelPermission};
 use revolt_result::{create_error, Result};
@@ -12,28 +12,43 @@ use rocket_empty::EmptyResponse;
 use serde::Deserialize;
 use ulid::Ulid;
 
+use super::agent::AgentAuth;
+use super::queue::{avancar, ChannelQueue, Queues, Repeat};
 use super::state::{Command, MusicBoxState, Track};
 
-/// Mais curto que o da busca: mandar tocar não espera download nenhum, só o
-/// agente confirmar que começou.
-const ESPERA_MAXIMA: Duration = Duration::from_secs(30);
-
 #[derive(Debug, Deserialize, JsonSchema)]
-pub struct DataPlay {
-    pub track: Track,
+pub struct DataEnqueue {
+    /// Faixas a acrescentar, na ordem
+    pub tracks: Vec<Track>,
 }
 
-/// Permissão para mandar no MusicBox.
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct DataSettings {
+    pub repeat: Option<Repeat>,
+    pub shuffle: Option<bool>,
+}
+
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct DataProgress {
+    pub channel_id: String,
+    pub position_s: u32,
+    /// A faixa chegou ao fim sozinha
+    #[serde(default)]
+    pub finished: bool,
+}
+
+/// Quem pode entrar na chamada pode mexer na música dela.
 ///
-/// Usa `Connect` — quem pode entrar na chamada pode mexer na música dela. Um
-/// bit próprio (`UseMusicBox`) daria controle mais fino, mas gastar um bit de
-/// permissão antes de a feature provar que é usada é otimizar cedo demais.
-async fn exigir_permissao(
+/// Um bit de permissão próprio daria controle mais fino, mas gastar um bit
+/// antes de a feature provar que é usada é otimizar cedo. Com um bot de
+/// verdade configurado, tirar `Falar` dele já silencia a música — o controle
+/// fino existe por outro caminho.
+async fn canal_permitido(
     db: &Database,
     user: &User,
-    canal: &Reference<'_>,
-) -> Result<revolt_database::Channel> {
-    let channel = canal.as_channel(db).await?;
+    alvo: &Reference<'_>,
+) -> Result<Channel> {
+    let channel = alvo.as_channel(db).await?;
     let mut query = DatabasePermissionQuery::new(db, user).channel(&channel);
     calculate_channel_permissions(&mut query)
         .await
@@ -41,7 +56,7 @@ async fn exigir_permissao(
     Ok(channel)
 }
 
-async fn mandar(estado: &MusicBoxState, comando: Command) -> Result<EmptyResponse> {
+async fn exigir_agente(estado: &MusicBoxState) -> Result<()> {
     let config = config().await;
 
     if config.musicbox.agent_secret.is_empty() {
@@ -56,82 +71,290 @@ async fn mandar(estado: &MusicBoxState, comando: Command) -> Result<EmptyRespons
         }));
     }
 
-    let id = comando.id.clone();
-    let recebe = estado.submit(comando);
-
-    match tokio::time::timeout(ESPERA_MAXIMA, recebe).await {
-        Ok(Ok(resultado)) => {
-            if let Some(erro) = resultado.error {
-                log::warn!("musicbox: o agente não conseguiu tocar: {erro}");
-                return Err(create_error!(InternalError));
-            }
-            Ok(EmptyResponse)
-        }
-        _ => {
-            estado.forget(&id);
-            Err(create_error!(InternalError))
-        }
-    }
+    Ok(())
 }
 
-/// # Play Track
+/// Manda o agente tocar o que está como atual, ou parar se não há nada.
 ///
-/// Plays a track into this channel's call.
+/// Não espera resposta de propósito. Quem chama isto está atendendo um pedido
+/// do navegador ou um aviso do agente, e nenhum dos dois deve ficar preso
+/// esperando um download começar do outro lado do mundo.
+fn sincronizar(estado: &MusicBoxState, channel_id: &str, fila: &ChannelQueue) {
+    let comando = match (&fila.current, fila.playing) {
+        (Some(faixa), true) => Command {
+            id: Ulid::new().to_string(),
+            kind: "play".to_string(),
+            query: String::new(),
+            limit: 0,
+            channel_id: Some(channel_id.to_string()),
+            track: Some(faixa.clone()),
+        },
+        _ => Command {
+            id: Ulid::new().to_string(),
+            kind: "stop".to_string(),
+            query: String::new(),
+            limit: 0,
+            channel_id: Some(channel_id.to_string()),
+            track: None,
+        },
+    };
+
+    estado.submit_detached(comando);
+}
+
+/// # Fetch Queue
 ///
-/// O áudio vai da máquina do agente direto para o servidor de voz; esta rota
-/// só carrega o pedido.
+/// The music queue for this channel's call.
 #[openapi(tag = "MusicBox")]
-#[post("/<target>/play", data = "<data>")]
-pub async fn play(
+#[get("/<target>/queue")]
+pub async fn fetch_queue(
     db: &State<Database>,
-    estado: &State<MusicBoxState>,
+    filas: &State<Queues>,
     user: User,
     target: Reference<'_>,
-    data: Json<DataPlay>,
-) -> Result<EmptyResponse> {
-    let channel = exigir_permissao(db, &user, &target).await?;
+) -> Result<Json<ChannelQueue>> {
+    let channel = canal_permitido(db, &user, &target).await?;
+    Ok(Json(filas.get(channel.id())))
+}
+
+/// # Enqueue Tracks
+///
+/// Adds tracks to the queue, starting playback if nothing is playing.
+#[openapi(tag = "MusicBox")]
+#[post("/<target>/queue", data = "<data>")]
+pub async fn enqueue(
+    db: &State<Database>,
+    estado: &State<MusicBoxState>,
+    filas: &State<Queues>,
+    user: User,
+    target: Reference<'_>,
+    data: Json<DataEnqueue>,
+) -> Result<Json<ChannelQueue>> {
+    exigir_agente(estado).await?;
+    let channel = canal_permitido(db, &user, &target).await?;
 
     if channel.voice().is_none() {
         return Err(create_error!(NotAVoiceChannel));
     }
 
-    mandar(
-        estado,
-        Command {
-            id: Ulid::new().to_string(),
-            kind: "play".to_string(),
-            query: String::new(),
-            limit: 0,
-            channel_id: Some(channel.id().to_string()),
-            track: Some(data.into_inner().track),
-        },
-    )
-    .await
+    let mut comecou = false;
+    let fila = filas.update(channel.id(), |f| {
+        for faixa in data.into_inner().tracks {
+            // Sem nada tocando, o que entra vira a atual em vez de esperar
+            // numa fila que ninguém vai puxar.
+            if f.current.is_none() {
+                f.current = Some(faixa);
+                f.position_s = 0;
+                f.playing = true;
+                comecou = true;
+            } else {
+                f.queue.push(faixa);
+            }
+        }
+    });
+
+    if comecou {
+        sincronizar(estado, channel.id(), &fila);
+    }
+
+    Ok(Json(fila))
+}
+
+/// # Remove From Queue
+///
+/// Drops the track at this position in the queue.
+#[openapi(tag = "MusicBox")]
+#[delete("/<target>/queue/<index>")]
+pub async fn dequeue(
+    db: &State<Database>,
+    filas: &State<Queues>,
+    user: User,
+    target: Reference<'_>,
+    index: usize,
+) -> Result<Json<ChannelQueue>> {
+    let channel = canal_permitido(db, &user, &target).await?;
+
+    Ok(Json(filas.update(channel.id(), |f| {
+        if index < f.queue.len() {
+            f.queue.remove(index);
+        }
+    })))
+}
+
+/// # Clear Queue
+///
+/// Empties the queue without stopping what is playing.
+#[openapi(tag = "MusicBox")]
+#[delete("/<target>/queue")]
+pub async fn clear_queue(
+    db: &State<Database>,
+    filas: &State<Queues>,
+    user: User,
+    target: Reference<'_>,
+) -> Result<Json<ChannelQueue>> {
+    let channel = canal_permitido(db, &user, &target).await?;
+    Ok(Json(filas.update(channel.id(), |f| f.queue.clear())))
+}
+
+/// # Jump To Queued Track
+///
+/// Plays a queued track right away, putting the current one back in front.
+#[openapi(tag = "MusicBox")]
+#[post("/<target>/queue/<index>/play")]
+pub async fn play_queued(
+    db: &State<Database>,
+    estado: &State<MusicBoxState>,
+    filas: &State<Queues>,
+    user: User,
+    target: Reference<'_>,
+    index: usize,
+) -> Result<Json<ChannelQueue>> {
+    exigir_agente(estado).await?;
+    let channel = canal_permitido(db, &user, &target).await?;
+
+    let fila = filas.update(channel.id(), |f| {
+        if index >= f.queue.len() {
+            return;
+        }
+        let escolhida = f.queue.remove(index);
+        if let Some(atual) = f.current.take() {
+            f.queue.insert(0, atual);
+        }
+        f.current = Some(escolhida);
+        f.position_s = 0;
+        f.playing = true;
+    });
+
+    sincronizar(estado, channel.id(), &fila);
+    Ok(Json(fila))
+}
+
+/// # Skip Track
+///
+/// Moves on to the next track.
+#[openapi(tag = "MusicBox")]
+#[post("/<target>/next")]
+pub async fn next(
+    db: &State<Database>,
+    estado: &State<MusicBoxState>,
+    filas: &State<Queues>,
+    user: User,
+    target: Reference<'_>,
+) -> Result<Json<ChannelQueue>> {
+    exigir_agente(estado).await?;
+    let channel = canal_permitido(db, &user, &target).await?;
+
+    // `true` porque isto é um pedido explícito: com repetição de uma faixa,
+    // pular precisa pular mesmo.
+    let fila = filas.update(channel.id(), |f| {
+        avancar(f, true);
+    });
+
+    sincronizar(estado, channel.id(), &fila);
+    Ok(Json(fila))
+}
+
+/// # Pause Or Resume
+///
+/// Toggles playback of the current track.
+#[openapi(tag = "MusicBox")]
+#[post("/<target>/toggle")]
+pub async fn toggle(
+    db: &State<Database>,
+    estado: &State<MusicBoxState>,
+    filas: &State<Queues>,
+    user: User,
+    target: Reference<'_>,
+) -> Result<Json<ChannelQueue>> {
+    exigir_agente(estado).await?;
+    let channel = canal_permitido(db, &user, &target).await?;
+
+    let fila = filas.update(channel.id(), |f| {
+        if f.current.is_some() {
+            f.playing = !f.playing;
+        }
+    });
+
+    // Pausar aqui é parar de verdade: o agente não guarda a faixa em disco,
+    // então retomar recomeça o download. Para música de fundo entre amigos
+    // isso é aceitável, e evita segurar um processo parado por tempo
+    // indefinido.
+    sincronizar(estado, channel.id(), &fila);
+    Ok(Json(fila))
 }
 
 /// # Stop Playback
 ///
-/// Stops whatever the MusicBox is playing in this channel.
+/// Stops and forgets the queue for this channel.
 #[openapi(tag = "MusicBox")]
 #[post("/<target>/stop")]
 pub async fn stop(
     db: &State<Database>,
     estado: &State<MusicBoxState>,
+    filas: &State<Queues>,
     user: User,
     target: Reference<'_>,
 ) -> Result<EmptyResponse> {
-    let channel = exigir_permissao(db, &user, &target).await?;
+    let channel = canal_permitido(db, &user, &target).await?;
 
-    mandar(
-        estado,
-        Command {
-            id: Ulid::new().to_string(),
-            kind: "stop".to_string(),
-            query: String::new(),
-            limit: 0,
-            channel_id: Some(channel.id().to_string()),
-            track: None,
-        },
-    )
-    .await
+    filas.clear(channel.id());
+    sincronizar(estado, channel.id(), &ChannelQueue::default());
+
+    Ok(EmptyResponse)
+}
+
+/// # Change Playback Settings
+///
+/// Sets repeat and shuffle for this channel.
+#[openapi(tag = "MusicBox")]
+#[patch("/<target>/settings", data = "<data>")]
+pub async fn settings(
+    db: &State<Database>,
+    filas: &State<Queues>,
+    user: User,
+    target: Reference<'_>,
+    data: Json<DataSettings>,
+) -> Result<Json<ChannelQueue>> {
+    let channel = canal_permitido(db, &user, &target).await?;
+    let dados = data.into_inner();
+
+    Ok(Json(filas.update(channel.id(), |f| {
+        if let Some(r) = dados.repeat {
+            f.repeat = r;
+        }
+        if let Some(s) = dados.shuffle {
+            f.shuffle = s;
+        }
+    })))
+}
+
+/// # Report Progress
+///
+/// The agent tells the server how far along it is, and when a track ended.
+///
+/// É o que permite a barra andar e a fila seguir sozinha. Sem isso o servidor
+/// só saberia que a música acabou quando alguém reclamasse do silêncio.
+#[openapi(tag = "MusicBox")]
+#[post("/agent/progress", data = "<data>")]
+pub async fn progress(
+    _auth: AgentAuth,
+    estado: &State<MusicBoxState>,
+    filas: &State<Queues>,
+    data: Json<DataProgress>,
+) -> Result<EmptyResponse> {
+    let dados = data.into_inner();
+    estado.agent_checked_in();
+
+    if !dados.finished {
+        filas.report_position(&dados.channel_id, dados.position_s);
+        return Ok(EmptyResponse);
+    }
+
+    // `false`: a faixa acabou sozinha, então repetir-uma deve repetir.
+    let fila = filas.update(&dados.channel_id, |f| {
+        avancar(f, false);
+    });
+
+    sincronizar(estado, &dados.channel_id, &fila);
+    Ok(EmptyResponse)
 }

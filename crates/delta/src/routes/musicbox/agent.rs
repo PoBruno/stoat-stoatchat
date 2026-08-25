@@ -87,10 +87,38 @@ impl OpenApiFromRequest<'_> for AgentAuth {
 /// # Agent Heartbeat
 ///
 /// Tells the server an extraction agent is alive and reachable.
+///
+/// Quando o agente volta depois de sumir, isto remanda o que cada canal
+/// acredita estar tocando. Sem esse reencontro, um reinício do agente deixaria
+/// o servidor anunciando música sobre o silêncio — e a barra correndo sozinha.
 #[openapi(tag = "MusicBox")]
 #[post("/agent/heartbeat")]
-pub async fn heartbeat(_auth: AgentAuth, estado: &State<MusicBoxState>) -> Result<EmptyResponse> {
-    estado.agent_checked_in();
+pub async fn heartbeat(
+    _auth: AgentAuth,
+    estado: &State<MusicBoxState>,
+    filas: &State<super::queue::Queues>,
+) -> Result<EmptyResponse> {
+    let config = config().await;
+    let voltou = estado.agent_checked_in_with_timeout(Duration::from_secs(
+        config.musicbox.agent_timeout_seconds,
+    ));
+
+    if voltou {
+        for (canal, fila) in filas.playing_channels() {
+            if let Some(faixa) = fila.current {
+                log::info!("musicbox: agente voltou; retomando {canal}");
+                estado.submit_detached(Command {
+                    id: ulid::Ulid::new().to_string(),
+                    kind: "play".to_string(),
+                    query: String::new(),
+                    limit: 0,
+                    channel_id: Some(canal),
+                    track: Some(faixa),
+                });
+            }
+        }
+    }
+
     Ok(EmptyResponse)
 }
 

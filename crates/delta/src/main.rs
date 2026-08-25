@@ -91,6 +91,7 @@ pub async fn web() -> Rocket<Build> {
         .manage(voice_client)
         .manage(ratelimits)
         .manage(routes::musicbox::state::MusicBoxState::new())
+        .manage(routes::musicbox::queue::Queues::new())
         .attach(ratelimiter::RatelimitFairing)
         .attach(cors)
         .configure(rocket::Config {

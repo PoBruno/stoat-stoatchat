@@ -493,6 +493,16 @@ pub struct MusicBox {
 
     /// Quantos segundos sem batimento até o agente ser dado como ausente.
     pub agent_timeout_seconds: u64,
+
+    /// Conta de bot que representa o MusicBox na chamada.
+    ///
+    /// Vazio faz o agente entrar com uma identidade sintética, que funciona
+    /// mas aparece sem nome nem rosto. Apontando para um bot de verdade, ele
+    /// entra como aquele usuário: nome, avatar e permissões passam a ser os
+    /// da conta, editáveis pelas telas que já existem — e o resto do código
+    /// de voz deixa de precisar tratá-lo como exceção.
+    #[serde(default)]
+    pub bot_user_id: String,
 }
 
 #[derive(Deserialize, Debug, Clone)]

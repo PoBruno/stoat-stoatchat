@@ -102,36 +102,73 @@ impl VoiceClient {
 
     /// Token para o agente de música entrar numa sala.
     ///
-    /// Difere do token de uma pessoa em tudo que importa:
+    /// Com uma conta de bot configurada, o agente entra **como aquele
+    /// usuário**: mesma identidade, mesmo nome, mesmos metadados que uma
+    /// pessoa teria. É o que faz a interface desenhá-lo com nome e avatar sem
+    /// nenhum caso especial, e o que permite controlá-lo pelas permissões do
+    /// canal como se controla qualquer um.
     ///
-    /// - a identidade leva o prefixo do MusicBox, porque o agente não tem
-    ///   conta e o resto do código precisa reconhecê-lo para não tratá-lo
-    ///   como usuário;
-    /// - `can_subscribe: false` — o agente toca, não escuta. Assinar as
-    ///   outras faixas gastaria banda da casa de quem hospeda para nada;
-    /// - a fonte é `unknown`, a mesma que o soundboard usa, para a música
-    ///   chegar como faixa separada e não ser confundida com microfone.
+    /// Sem conta configurada, cai numa identidade sintética com prefixo. Ela
+    /// toca igual, mas aparece sem rosto — e obriga o resto do código de voz
+    /// a reconhecê-la para não tratá-la como usuário.
     ///
-    /// Não usa `hidden`. Seria o campo óbvio para tirar o agente da lista de
-    /// participantes, mas no LiveKit oculto significa oculto de verdade: as
-    /// faixas dele não são entregues a ninguém, e a música simplesmente não
-    /// toca. Esconder o agente é decisão da interface, e é lá que ela é
-    /// tomada.
-    pub async fn create_musicbox_token(&self, node: &str, channel: &Channel) -> Result<String> {
+    /// Em nenhum dos casos usa `hidden`. Seria o campo óbvio para tirá-lo da
+    /// lista de participantes, mas no LiveKit oculto significa oculto de
+    /// verdade: as faixas não são entregues a ninguém, e a música não toca.
+    pub async fn create_musicbox_token(
+        &self,
+        node: &str,
+        db: &Database,
+        channel: &Channel,
+    ) -> Result<String> {
         let room = self.get_node(node)?;
+        let config = config().await;
 
-        AccessToken::with_api_key(&room.node.key, &room.node.secret)
-            .with_name("MusicBox")
-            .with_identity(&format!("{MUSICBOX_IDENTITY_PREFIX}{}", channel.id()))
+        let bot = if config.musicbox.bot_user_id.is_empty() {
+            None
+        } else {
+            // Bot configurado que sumiu do banco não é motivo para a música
+            // parar: registra e segue com a identidade sintética.
+            match db.fetch_user(&config.musicbox.bot_user_id).await {
+                Ok(user) => Some(user),
+                Err(_) => {
+                    log::warn!(
+                        "musicbox: bot_user_id {} não existe; entrando sem identidade",
+                        config.musicbox.bot_user_id
+                    );
+                    None
+                }
+            }
+        };
+
+        let mut token = AccessToken::with_api_key(&room.node.key, &room.node.secret)
             // Folgado em relação aos 10s de uma pessoa: o agente pode estar do
             // outro lado de uma conexão residencial, e o token só serve para o
             // aperto de mão.
-            .with_ttl(Duration::from_secs(60))
+            .with_ttl(Duration::from_secs(60));
+
+        token = match &bot {
+            Some(user) => token
+                .with_identity(&user.id)
+                .with_name(&format!("{}#{}", user.username, user.discriminator))
+                .with_metadata(
+                    &serde_json::to_string(&user.clone().into(db, None).await)
+                        .to_internal_error()?,
+                ),
+            None => token
+                .with_identity(&format!("{MUSICBOX_IDENTITY_PREFIX}{}", channel.id()))
+                .with_name("MusicBox"),
+        };
+
+        token
             .with_grants(VideoGrants {
                 room_join: true,
                 can_publish: true,
                 can_publish_data: false,
+                // A mesma fonte do soundboard: áudio que não é microfone.
                 can_publish_sources: vec!["unknown".to_string()],
+                // O agente toca, não escuta. Assinar as outras faixas gastaria
+                // banda da casa de quem hospeda para nada.
                 can_subscribe: false,
                 room: channel.id().to_string(),
                 ..Default::default()
