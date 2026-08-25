@@ -25,7 +25,6 @@ use super::state::{Command, CommandResult, MusicBoxState};
 /// primeira letra diferente, porque o tempo da resposta contaria ao chamador
 /// quantas letras ele já acertou.
 pub struct AgentAuth;
-
 /// Comparação em tempo constante.
 fn iguais(a: &str, b: &str) -> bool {
     let (a, b) = (a.as_bytes(), b.as_bytes());

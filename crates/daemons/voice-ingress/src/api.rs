@@ -7,9 +7,9 @@ use revolt_database::{
     voice::{
         create_voice_state, delete_channel_voice_state, delete_voice_state,
         get_call_notification_recipients, get_user_moved_from_voice, get_user_moved_to_voice,
-        get_voice_channel_members, set_channel_call_started_system_message,
-        take_channel_call_started_system_message, update_voice_state_tracks, RoomMetadata,
-        UserVoiceChannel, VoiceClient,
+        get_voice_channel_members, is_musicbox_participant,
+        set_channel_call_started_system_message, take_channel_call_started_system_message,
+        update_voice_state_tracks, RoomMetadata, UserVoiceChannel, VoiceClient,
     },
     Channel, Database, PartialMessage, SystemMessage, AMQP,
 };
@@ -60,6 +60,20 @@ pub async fn ingress(
     } else {
         None
     };
+
+    // O agente de música é um participante sem conta: publica áudio e nada
+    // mais. Tudo daqui para baixo trata `identity` como id de usuário — o
+    // `as_user` devolveria NotFound, e `User::limits` faz
+    // `Ulid::from_str(...).expect(...)`, que derruba o daemon inteiro em vez
+    // de falhar aquele evento.
+    //
+    // A saída fica antes do `match` de propósito: assim vale também para
+    // qualquer evento que venha a ser tratado depois, sem precisar lembrar
+    // de repetir a checagem.
+    if user_id.is_some_and(|id| is_musicbox_participant(id)) {
+        log::debug!("Ignoring voice event for music agent {user_id:?}");
+        return Ok(EmptyResponse);
+    }
 
     match event.event.as_str() {
         // User joined a channel

@@ -77,10 +77,13 @@ pub async fn resolve(
     let id = Ulid::new().to_string();
     let recebe = estado.submit(Command {
         id: id.clone(),
+        kind: "resolve".to_string(),
         query: consulta,
         // O teto existe para uma playlist enorme não virar uma fila que
         // ninguém consegue usar, nem uma resposta gigante.
         limit: data.limit.unwrap_or(25).clamp(1, 200),
+        channel_id: None,
+        track: None,
     });
 
     match tokio::time::timeout(ESPERA_MAXIMA, recebe).await {

@@ -13,7 +13,7 @@ use revolt_permissions::{ChannelPermission, PermissionValue};
 use revolt_result::{create_error, Result, ToRevoltError};
 use std::{collections::HashMap, time::Duration};
 
-use super::get_allowed_sources;
+use super::{get_allowed_sources, MUSICBOX_IDENTITY_PREFIX};
 
 #[derive(Debug)]
 pub struct RoomClient {
@@ -100,8 +100,47 @@ impl VoiceClient {
             .to_internal_error()
     }
 
-    pub async fn create_room(&self, node: &str, channel: &Channel) -> Result<Room> {
+    /// Token para o agente de música entrar numa sala.
+    ///
+    /// Difere do token de uma pessoa em tudo que importa:
+    ///
+    /// - a identidade leva o prefixo do MusicBox, porque o agente não tem
+    ///   conta e o resto do código precisa reconhecê-lo para não tratá-lo
+    ///   como usuário;
+    /// - `can_subscribe: false` — o agente toca, não escuta. Assinar as
+    ///   outras faixas gastaria banda da casa de quem hospeda para nada;
+    /// - a fonte é `unknown`, a mesma que o soundboard usa, para a música
+    ///   chegar como faixa separada e não ser confundida com microfone.
+    ///
+    /// Não usa `hidden`. Seria o campo óbvio para tirar o agente da lista de
+    /// participantes, mas no LiveKit oculto significa oculto de verdade: as
+    /// faixas dele não são entregues a ninguém, e a música simplesmente não
+    /// toca. Esconder o agente é decisão da interface, e é lá que ela é
+    /// tomada.
+    pub async fn create_musicbox_token(&self, node: &str, channel: &Channel) -> Result<String> {
         let room = self.get_node(node)?;
+
+        AccessToken::with_api_key(&room.node.key, &room.node.secret)
+            .with_name("MusicBox")
+            .with_identity(&format!("{MUSICBOX_IDENTITY_PREFIX}{}", channel.id()))
+            // Folgado em relação aos 10s de uma pessoa: o agente pode estar do
+            // outro lado de uma conexão residencial, e o token só serve para o
+            // aperto de mão.
+            .with_ttl(Duration::from_secs(60))
+            .with_grants(VideoGrants {
+                room_join: true,
+                can_publish: true,
+                can_publish_data: false,
+                can_publish_sources: vec!["unknown".to_string()],
+                can_subscribe: false,
+                room: channel.id().to_string(),
+                ..Default::default()
+            })
+            .to_jwt()
+            .to_internal_error()
+    }
+
+    pub async fn create_room(&self, node: &str, channel: &Channel) -> Result<Room> {        let room = self.get_node(node)?;
 
         let metadata = RoomMetadata {
             server: channel.server().map(|id| id.to_string()),

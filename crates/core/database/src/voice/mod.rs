@@ -21,6 +21,23 @@ use revolt_result::{create_error, Result, ToRevoltError};
 mod voice_client;
 pub use voice_client::VoiceClient;
 
+/// Marca o participante do MusicBox na sala de voz.
+///
+/// O agente de música entra na chamada para publicar áudio e nada mais — ele
+/// não tem conta, e não deve ter. Todo o resto do código de voz assume que a
+/// `identity` de um participante é o id de um usuário do banco: o daemon faz
+/// `as_user`, e `User::limits` chama `Ulid::from_str(...).expect(...)`, que
+/// **derruba o processo** em vez de devolver erro.
+///
+/// O prefixo existe para esse código conseguir reconhecer e ignorar o agente.
+/// O `!` não aparece em ULID, então nenhum id de usuário colide com isto.
+pub const MUSICBOX_IDENTITY_PREFIX: &str = "mb!";
+
+/// Se esta identidade é do agente de música, e não de uma pessoa.
+pub fn is_musicbox_participant(identity: &str) -> bool {
+    identity.starts_with(MUSICBOX_IDENTITY_PREFIX)
+}
+
 async fn get_connection() -> Result<Conn> {
     _get_connection()
         .await

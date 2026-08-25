@@ -23,12 +23,26 @@ pub struct Track {
 }
 
 /// Trabalho entregue ao agente.
+///
+/// `kind` diz o que fazer. Um enum seria mais bonito, mas o agente é escrito
+/// noutra linguagem e a serialização em texto simples é o que menos surpreende
+/// dos dois lados.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct Command {
     pub id: String,
-    /// Nome para buscar, ou URL de vídeo ou playlist
+    /// `resolve`, `play` ou `stop`
+    pub kind: String,
+    /// Nome para buscar, ou URL de vídeo ou playlist. Vazio em `stop`.
+    #[serde(default)]
     pub query: String,
+    #[serde(default)]
     pub limit: u16,
+    /// Canal onde tocar; só em `play` e `stop`
+    #[serde(default)]
+    pub channel_id: Option<String>,
+    /// Faixa a tocar; só em `play`
+    #[serde(default)]
+    pub track: Option<Track>,
 }
 
 /// O que o agente devolve depois de trabalhar.
@@ -181,8 +195,11 @@ mod test {
         let estado = MusicBoxState::new();
         let recebe = estado.submit(Command {
             id: "a".to_string(),
+            kind: "resolve".to_string(),
             query: "coisa".to_string(),
             limit: 5,
+            channel_id: None,
+            track: None,
         });
 
         let pego = estado.take_command().expect("havia trabalho");
@@ -217,8 +234,11 @@ mod test {
         let estado = MusicBoxState::new();
         let _recebe = estado.submit(Command {
             id: "b".to_string(),
+            kind: "resolve".to_string(),
             query: "coisa".to_string(),
             limit: 5,
+            channel_id: None,
+            track: None,
         });
 
         estado.forget("b");
@@ -247,8 +267,11 @@ mod test {
             tokio::time::sleep(Duration::from_millis(50)).await;
             outro.submit(Command {
                 id: "c".to_string(),
+                kind: "resolve".to_string(),
                 query: "coisa".to_string(),
                 limit: 5,
+                channel_id: None,
+                track: None,
             });
         });
 
