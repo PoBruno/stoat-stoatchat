@@ -35,6 +35,18 @@ pub struct ChannelQueue {
     pub queue: Vec<Track>,
     pub repeat: Repeat,
     pub shuffle: bool,
+
+    /// Identidade do agente na sala de voz.
+    ///
+    /// O cliente precisa disto para ajustar o volume da música: o áudio chega
+    /// como faixa de um participante, e o volume por participante é indexado
+    /// pela identidade. Sem este campo o navegador teria de adivinhar qual dos
+    /// presentes é o MusicBox.
+    ///
+    /// Preenchido só na leitura, porque depende da configuração e não do
+    /// estado da fila.
+    #[serde(skip_deserializing, default)]
+    pub bot_identity: Option<String>,
 }
 
 struct Interno {

@@ -113,8 +113,15 @@ pub enum ChannelPermission {
     /// tambem vale.
     ManageSoundboard = 1 << 42,
 
+    /// Queue and control music in a voice channel
+    ///
+    /// Separado de Connect porque entrar na chamada e mandar na musica que
+    /// todo mundo ouve sao coisas diferentes: numa chamada de dez pessoas,
+    /// quem pode escutar nao e necessariamente quem deve poder pular a faixa.
+    UseMusicBox = 1 << 43,
+
     // * Misc. permissions
-    // % Bits 43 to 52: free area
+    // % Bits 44 to 52: free area
     // % Bits 53 to 64: do not use
 
     // * Grant all permissions
@@ -151,6 +158,7 @@ pub static DEFAULT_PERMISSION: Lazy<u64> = Lazy::new(|| {
             + ChannelPermission::Listen
             + ChannelPermission::Video
             + ChannelPermission::UseSoundboard
+            + ChannelPermission::UseMusicBox
     )
 });
 

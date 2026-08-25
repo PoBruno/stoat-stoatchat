@@ -3,6 +3,7 @@ use std::time::Duration;
 use revolt_config::config;
 use revolt_database::{
     util::{permissions::DatabasePermissionQuery, reference::Reference},
+    voice::MUSICBOX_IDENTITY_PREFIX,
     Channel, Database, User,
 };
 use revolt_permissions::{calculate_channel_permissions, ChannelPermission};
@@ -37,12 +38,11 @@ pub struct DataProgress {
     pub finished: bool,
 }
 
-/// Quem pode entrar na chamada pode mexer na música dela.
+/// Quem pode mexer na musica da chamada.
 ///
-/// Um bit de permissão próprio daria controle mais fino, mas gastar um bit
-/// antes de a feature provar que é usada é otimizar cedo. Com um bot de
-/// verdade configurado, tirar `Falar` dele já silencia a música — o controle
-/// fino existe por outro caminho.
+/// `UseMusicBox` e nao `Connect`: entrar na chamada e mandar na musica que
+/// todo mundo ouve sao coisas diferentes. Numa chamada de dez pessoas, quem
+/// pode escutar nao e necessariamente quem deve poder pular a faixa.
 async fn canal_permitido(
     db: &Database,
     user: &User,
@@ -52,7 +52,7 @@ async fn canal_permitido(
     let mut query = DatabasePermissionQuery::new(db, user).channel(&channel);
     calculate_channel_permissions(&mut query)
         .await
-        .throw_if_lacking_channel_permission(ChannelPermission::Connect)?;
+        .throw_if_lacking_channel_permission(ChannelPermission::UseMusicBox)?;
     Ok(channel)
 }
 
@@ -102,6 +102,22 @@ fn sincronizar(estado: &MusicBoxState, channel_id: &str, fila: &ChannelQueue) {
     estado.submit_detached(comando);
 }
 
+/// Preenche a identidade do agente na sala.
+///
+/// Com bot configurado, e o id dele; sem bot, a identidade sintetica derivada
+/// do canal. E o mesmo calculo do token, e precisa continuar batendo com
+/// `create_musicbox_token` -- se divergir, o volume passa a ajustar um
+/// participante que nao existe e nada acontece, silenciosamente.
+async fn com_identidade(mut fila: ChannelQueue, channel_id: &str) -> ChannelQueue {
+    let config = config().await;
+    fila.bot_identity = Some(if config.musicbox.bot_user_id.is_empty() {
+        format!("{MUSICBOX_IDENTITY_PREFIX}{channel_id}")
+    } else {
+        config.musicbox.bot_user_id.clone()
+    });
+    fila
+}
+
 /// # Fetch Queue
 ///
 /// The music queue for this channel's call.
@@ -114,7 +130,9 @@ pub async fn fetch_queue(
     target: Reference<'_>,
 ) -> Result<Json<ChannelQueue>> {
     let channel = canal_permitido(db, &user, &target).await?;
-    Ok(Json(filas.get(channel.id())))
+    Ok(Json(
+        com_identidade(filas.get(channel.id()), channel.id()).await,
+    ))
 }
 
 /// # Enqueue Tracks

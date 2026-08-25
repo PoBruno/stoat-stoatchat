@@ -60,7 +60,7 @@ pub async fn resolve(
     let mut query = DatabasePermissionQuery::new(db, &user).channel(&channel);
     calculate_channel_permissions(&mut query)
         .await
-        .throw_if_lacking_channel_permission(ChannelPermission::Connect)?;
+        .throw_if_lacking_channel_permission(ChannelPermission::UseMusicBox)?;
 
     let espera_agente = Duration::from_secs(config.musicbox.agent_timeout_seconds);
     if !estado.agent_present(espera_agente) {

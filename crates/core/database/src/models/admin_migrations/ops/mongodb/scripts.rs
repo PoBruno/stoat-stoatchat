@@ -26,7 +26,7 @@ struct MigrationInfo {
     revision: i32,
 }
 
-pub const LATEST_REVISION: i32 = 55; // MUST BE +1 to last migration
+pub const LATEST_REVISION: i32 = 56; // MUST BE +1 to last migration
 
 pub async fn migrate_database(db: &MongoDb) {
     let migrations = db.col::<Document>("migrations");
@@ -1678,6 +1678,35 @@ pub async fn run_migrations(db: &MongoDb, revision: i32) -> i32 {
             })
             .await
             .expect("Failed to create sounds index");
+    };
+
+    if revision <= 55 {
+        info!("Running migration [revision 55 / 25-08-2026]: Grant soundboard and musicbox by default");
+
+        // `default_permissions` e um retrato gravado quando o servidor foi
+        // criado, nao um calculo. Mexer em DEFAULT_PERMISSION so alcanca
+        // servidores novos -- os que ja existem ficam sem o bit, e ninguem
+        // percebe ate alguem reclamar que o botao nao funciona.
+        //
+        // Foi o que aconteceu com o soundboard: o bit 41 entrou no padrao mas
+        // nenhuma migration o propagou, entao ele esta negado em toda
+        // instancia anterior. Esta migration corrige os dois de uma vez.
+        //
+        // `$bit`/`or` e idempotente: rodar de novo nao muda nada.
+        db.col::<Document>("servers")
+            .update_many(
+                doc! {},
+                doc! {
+                    "$bit": {
+                        "default_permissions": {
+                            "or": (ChannelPermission::UseSoundboard
+                                 + ChannelPermission::UseMusicBox) as i64
+                        },
+                    }
+                },
+            )
+            .await
+            .expect("Failed to update default_permissions");
     };
 
     // Reminder to update LATEST_REVISION when adding new migrations.
