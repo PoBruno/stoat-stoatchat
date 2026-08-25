@@ -8,6 +8,7 @@ mod bots;
 mod channels;
 mod customisation;
 mod invites;
+pub mod musicbox;
 mod onboard;
 mod policy;
 mod push;
@@ -43,6 +44,7 @@ pub fn mount(config: Settings, mut rocket: Rocket<Build>) -> Rocket<Build> {
             "/policy" => policy::routes(),
             "/push" => push::routes(),
             "/sync" => sync::routes(),
+            "/musicbox" => musicbox::routes(),
             "/webhooks" => webhooks::routes()
         };
     } else {
@@ -63,7 +65,8 @@ pub fn mount(config: Settings, mut rocket: Rocket<Build>) -> Rocket<Build> {
             "/onboard" => onboard::routes(),
             "/policy" => policy::routes(),
             "/push" => push::routes(),
-            "/sync" => sync::routes()
+            "/sync" => sync::routes(),
+            "/musicbox" => musicbox::routes()
         };
     }
 

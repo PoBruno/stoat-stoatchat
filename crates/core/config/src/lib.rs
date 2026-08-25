@@ -467,6 +467,34 @@ pub struct Sentry {
     pub gifbox: String,
 }
 
+/// MusicBox: música tocada dentro de uma chamada.
+///
+/// O áudio é extraído por um agente que roda fora do servidor. O YouTube
+/// recusa os IPs de datacenter desta VPS ("Sign in to confirm you're not a
+/// bot"), então quem extrai é uma máquina numa conexão residencial.
+///
+/// Esse agente vive atrás de NAT e não pode receber conexões: é sempre ele
+/// quem procura o servidor.
+#[derive(Deserialize, Debug, Clone)]
+pub struct MusicBox {
+    /// Segredo compartilhado com o agente.
+    ///
+    /// Vazio desliga o MusicBox por completo. É por instância e não por
+    /// usuário: um agente serve o servidor inteiro, e não precisa saber quem
+    /// pediu a música.
+    pub agent_secret: String,
+
+    /// Quantos segundos um pedido do agente fica pendurado esperando trabalho.
+    ///
+    /// Precisa ser menor que o tempo limite de qualquer proxy no caminho,
+    /// senão o proxy corta a conexão e o agente vê um erro onde deveria ver
+    /// "nada a fazer".
+    pub poll_seconds: u64,
+
+    /// Quantos segundos sem batimento até o agente ser dado como ausente.
+    pub agent_timeout_seconds: u64,
+}
+
 #[derive(Deserialize, Debug, Clone)]
 pub struct Settings {
     pub database: Database,
@@ -478,6 +506,7 @@ pub struct Settings {
     pub files: Files,
     pub features: Features,
     pub sentry: Sentry,
+    pub musicbox: MusicBox,
     pub production: bool,
     pub environment: String,
     pub disable_events_dont_use: bool,
