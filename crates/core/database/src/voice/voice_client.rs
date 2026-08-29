@@ -87,7 +87,25 @@ impl VoiceClient {
             .with_grants(VideoGrants {
                 room_join: true,
                 can_publish: true,
-                can_publish_data: false,
+                // Canal por onde trafegam as anotações efêmeras (laser) sobre
+                // compartilhamento de tela. Modo `lossy`, sem persistência:
+                // ponto de laser perdido é melhor que ponto retransmitido
+                // atrasado, e nada disso vira registro no banco.
+                //
+                // Os outros dois transportes foram descartados com número na
+                // mão. O REST cai no bucket `channels` — 15 requisições a cada
+                // 10 segundos, ou seja **1,5 req/s**, e ainda compartilhado com
+                // o ack e o fetch do canal. O WebSocket do bonfire não tem
+                // limite, mas faz fan-out para **todo o canal**, e não só para
+                // quem está na chamada — além de somar saltos (cliente →
+                // delta → Redis → bonfire → cliente) onde o data channel gasta
+                // um só, direto pelo SFU.
+                //
+                // Alarga o grant: qualquer cliente da sala passa a poder
+                // publicar dado arbitrário para os outros participantes dela.
+                // Decisão consciente — o público é um grupo fechado, o alcance
+                // é a sala (não a instância), e o conteúdo é efêmero.
+                can_publish_data: true,
                 can_publish_sources: allowed_sources
                     .into_iter()
                     .map(ToString::to_string)
@@ -164,6 +182,10 @@ impl VoiceClient {
             .with_grants(VideoGrants {
                 room_join: true,
                 can_publish: true,
+                // Continua `false`, ao contrário do token de pessoa: o agente
+                // de música publica áudio e nada mais. Ele não desenha laser,
+                // não anota tela e não tem por que mandar dado arbitrário para
+                // a sala. Grant a menos é superfície de ataque a menos.
                 can_publish_data: false,
                 // A mesma fonte do soundboard: áudio que não é microfone.
                 can_publish_sources: vec!["unknown".to_string()],

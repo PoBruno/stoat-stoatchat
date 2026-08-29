@@ -320,10 +320,24 @@ pub async fn ingress(
             if event.event == "track_published" {
                 let mut disconnect = false;
 
-                if track.r#type == TrackType::Data as i32 {
-                    log::debug!("User published data");
-                    disconnect = true;
-                };
+                // 2026-08-28 — removida a expulsão de quem publicava
+                // `TrackType::Data`. O data channel virou uso legítimo: é por
+                // ele que trafegam as anotações efêmeras (laser) sobre
+                // compartilhamento de tela, e o grant `can_publish_data` foi
+                // liberado em `revolt-database` (`voice/voice_client.rs`).
+                //
+                // Na prática o `if` já era código morto para esse caminho:
+                // `publishData()` monta um `DataPacket` e o entrega em
+                // `engine.sendDataPacket()`, que escreve direto no
+                // RTCDataChannel. Não passa por `AddTrackRequest`, logo não
+                // nasce nenhum `TrackInfo` — e `WebhookEvent.track` só é
+                // preenchido em evento `track_*`. Ou seja, o webhook
+                // `track_published` nunca chegava aqui com `TrackType::Data`.
+                //
+                // As demais validações abaixo (resolução e aspect ratio de
+                // vídeo) seguem valendo, assim como a whitelist de
+                // `can_publish_sources` do token, que é quem de fato limita o
+                // que cada um pode publicar.
 
                 if track.r#type == TrackType::Video as i32 {
                     if user_limits.video_resolution[0] != 0
