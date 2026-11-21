@@ -1,9 +1,9 @@
 [package]
 name = "revolt-result"
-version = "0.15.1"
-edition = "2021"
+version = "0.16.0"
+edition = "2024"
 license = "MIT"
-authors = ["Paul Makles <me@insrt.uk>"]
+authors = ["izzy <me@insrt.uk>"]
 description = "Revolt Backend: Result and Error types"
 repository = "https://github.com/stoatchat/stoatchat"
 
@@ -36,6 +36,7 @@ revolt_okapi = { workspace = true, optional = true }
 
 # utilities
 log = { workspace = true }
+strum_macros = { workspace = true }
 # Axum
 axum = { workspace = true, optional = true }
 

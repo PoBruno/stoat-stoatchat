@@ -1,8 +1,8 @@
 use iso8601_timestamp::Timestamp;
 use revolt_models::v0::*;
-use revolt_permissions::{calculate_user_permissions, UserPermission};
+use revolt_permissions::{UserPermission, calculate_user_permissions};
 
-use crate::{util::permissions::DatabasePermissionQuery, Database};
+use crate::{Database, util::permissions::DatabasePermissionQuery};
 
 impl crate::Bot {
     pub fn into_public_bot(self, user: crate::User) -> PublicBot {
@@ -17,6 +17,9 @@ impl crate::Bot {
                 .profile
                 .and_then(|profile| profile.content)
                 .unwrap_or_default(),
+            privacy_policy_url: self.privacy_policy_url,
+            terms_of_service_url: self.terms_of_service_url,
+            default_permissions: self.default_permissions,
         }
     }
 }
@@ -28,6 +31,7 @@ impl From<crate::Bot> for Bot {
             owner_id: value.owner,
             token: value.token,
             public: value.public,
+            default_permissions: value.default_permissions,
             analytics: value.analytics,
             discoverable: value.discoverable,
             interactions_url: value.interactions_url,
@@ -63,21 +67,33 @@ impl From<crate::Invite> for Invite {
                 code,
                 creator,
                 channel,
+                max_uses,
+                uses,
+                expires,
             } => Invite::Group {
                 code,
                 creator,
                 channel,
+                max_uses,
+                uses,
+                expires,
             },
             crate::Invite::Server {
                 code,
                 server,
                 creator,
                 channel,
+                max_uses,
+                uses,
+                expires,
             } => Invite::Server {
                 code,
                 server,
                 creator,
                 channel,
+                max_uses,
+                uses,
+                expires,
             },
         }
     }
@@ -98,6 +114,47 @@ impl From<crate::ChannelCompositeKey> for ChannelCompositeKey {
         ChannelCompositeKey {
             channel: value.channel,
             user: value.user,
+        }
+    }
+}
+
+impl From<crate::DiscoverBan> for DiscoverBan {
+    fn from(value: crate::DiscoverBan) -> Self {
+        DiscoverBan {
+            id: value.id,
+            item_type: value.item_type.into(),
+            item_id: value.item_id,
+        }
+    }
+}
+
+impl From<crate::DiscoverRequest> for DiscoverRequest {
+    fn from(value: crate::DiscoverRequest) -> Self {
+        DiscoverRequest {
+            request_type: value.request_type.into(),
+            request_id: value.request_id,
+            status: value.status.into(),
+        }
+    }
+}
+
+impl From<crate::DiscoverRequestType> for DiscoverRequestType {
+    fn from(value: crate::DiscoverRequestType) -> Self {
+        match value {
+            crate::DiscoverRequestType::Bot => DiscoverRequestType::Bot,
+            crate::DiscoverRequestType::Server => DiscoverRequestType::Server,
+        }
+    }
+}
+
+impl From<crate::DiscoverRequestStatus> for DiscoverRequestStatus {
+    fn from(value: crate::DiscoverRequestStatus) -> Self {
+        match value {
+            crate::DiscoverRequestStatus::Removed(s) => DiscoverRequestStatus::Removed(s),
+            crate::DiscoverRequestStatus::Approved(s) => DiscoverRequestStatus::Approved(s),
+            crate::DiscoverRequestStatus::Denied(s) => DiscoverRequestStatus::Denied(s),
+            crate::DiscoverRequestStatus::Pending => DiscoverRequestStatus::Pending,
+            crate::DiscoverRequestStatus::UnderReview => DiscoverRequestStatus::UnderReview,
         }
     }
 }
@@ -1010,6 +1067,7 @@ impl From<crate::Role> for Role {
             hoist: value.hoist,
             rank: value.rank,
             icon: value.icon.map(|f| f.into()),
+            owner: value.owner,
         }
     }
 }
@@ -1024,6 +1082,7 @@ impl From<Role> for crate::Role {
             hoist: value.hoist,
             rank: value.rank,
             icon: value.icon.map(|f| f.into()),
+            owner: value.owner,
         }
     }
 }
@@ -1038,6 +1097,7 @@ impl From<crate::PartialRole> for PartialRole {
             hoist: value.hoist,
             rank: value.rank,
             icon: value.icon.map(|f| f.into()),
+            owner: value.owner,
         }
     }
 }
@@ -1052,6 +1112,7 @@ impl From<PartialRole> for crate::PartialRole {
             hoist: value.hoist,
             rank: value.rank,
             icon: value.icon.map(|f| f.into()),
+            owner: value.owner,
         }
     }
 }
@@ -1080,9 +1141,7 @@ impl crate::User {
         P: Into<Option<&'a crate::User>>,
     {
         let perspective = perspective.into();
-        let (relationship, can_see_profile) = if self.bot.is_some() {
-            (RelationshipStatus::None, true)
-        } else if let Some(perspective) = perspective {
+        let (relationship, can_see_profile) = if let Some(perspective) = perspective {
             let mut query = DatabasePermissionQuery::new(db, perspective).user(&self);
 
             if perspective.id == self.id {
@@ -1161,9 +1220,7 @@ impl crate::User {
         P: Into<Option<&'a crate::User>>,
     {
         let perspective = perspective.into();
-        let (relationship, can_see_profile) = if self.bot.is_some() {
-            (RelationshipStatus::None, true)
-        } else if let Some(perspective) = perspective {
+        let (relationship, can_see_profile) = if let Some(perspective) = perspective {
             if perspective.id == self.id {
                 (RelationshipStatus::User, true)
             } else {
@@ -1307,6 +1364,7 @@ impl From<User> for crate::User {
             flags: Some(value.flags as i32),
             privileged: value.privileged,
             bot: value.bot.map(Into::into),
+            ratelimit_overrides: None,
             suspended_until: None,
             last_acknowledged_policy_change: Timestamp::UNIX_EPOCH,
         }

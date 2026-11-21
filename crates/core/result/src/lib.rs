@@ -1,6 +1,8 @@
 use std::fmt::Display;
 use std::panic::Location;
 
+use strum_macros::IntoStaticStr;
+
 #[cfg(feature = "serde")]
 #[macro_use]
 extern crate serde;
@@ -36,12 +38,12 @@ pub struct Error {
     pub error_type: ErrorType,
 
     /// Where this error occurred
-    pub location: String,
+    pub location: Option<String>,
 }
 
 impl Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?} occurred in {}", self.error_type, self.location)
+        write!(f, "{:?} occurred in {:?}", self.error_type, self.location)
     }
 }
 
@@ -65,7 +67,7 @@ impl serde::Serialize for Error {
                 | ErrorType::UnverifiedAccount
                 | ErrorType::LockedOut
                 | ErrorType::DisallowedMFAMethod => None,
-            _ => Some(self.location.as_str()),
+            _ => self.location.as_deref(),
         };
 
         Body {
@@ -81,10 +83,16 @@ impl serde::Serialize for Error {
 #[cfg_attr(feature = "serde", serde(tag = "type"))]
 #[cfg_attr(feature = "schemas", derive(JsonSchema))]
 #[cfg_attr(feature = "utoipa", derive(ToSchema))]
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, IntoStaticStr)]
 pub enum ErrorType {
     /// This error was not labeled :(
     LabelMe,
+
+    // ? Support Errors
+    ContactSupport {
+        locale: String,
+        msg: String,
+    },
 
     // ? Onboarding related errors
     AlreadyOnboarded,
@@ -217,6 +225,7 @@ pub enum ErrorType {
     },
     FileTypeNotAllowed,
     ImageProcessingFailed,
+    ImageResolutionNotAllowed,
     NoEmbedData,
 
     // ? Legacy errors
@@ -252,7 +261,7 @@ macro_rules! create_error {
     ( $error: ident $( $tt:tt )? ) => {
         $crate::Error {
             error_type: $crate::ErrorType::$error $( $tt )?,
-            location: format!("{}:{}:{}", file!(), line!(), column!()),
+            location: format!("{}:{}:{}", file!(), line!(), column!()).into(),
         }
     };
 }
@@ -301,7 +310,7 @@ impl<T, E: std::fmt::Debug + std::error::Error> ToRevoltError<T> for Result<T, E
 
             Error {
                 error_type: ErrorType::InternalError,
-                location: format!("{}:{}:{}", loc.file(), loc.line(), loc.column()),
+                location: format!("{}:{}:{}", loc.file(), loc.line(), loc.column()).into(),
             }
         })
     }
@@ -314,7 +323,7 @@ impl<T> ToRevoltError<T> for Option<T> {
 
         self.ok_or_else(|| Error {
             error_type: ErrorType::InternalError,
-            location: format!("{}:{}:{}", loc.file(), loc.line(), loc.column()),
+            location: format!("{}:{}:{}", loc.file(), loc.line(), loc.column()).into(),
         })
     }
 }

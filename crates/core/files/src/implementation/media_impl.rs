@@ -100,6 +100,7 @@ impl MediaRepository for MediaImpl {
         }
     }
 
+    #[tracing::instrument(skip(self, v))]
     fn image_size_vec(&self, v: &[u8], mime: &str) -> Option<(usize, usize)> {
         match mime {
             "image/svg+xml" => {
@@ -122,6 +123,7 @@ impl MediaRepository for MediaImpl {
         }
     }
 
+    #[tracing::instrument(skip(self, reader))]
     fn decode_image<R: Read + BufRead + Seek>(
         &self,
         reader: &mut R,
@@ -184,6 +186,7 @@ impl MediaRepository for MediaImpl {
         }
     }
 
+    #[tracing::instrument(skip(self, reader))]
     fn is_valid_image<R: Read + BufRead + Seek>(&self, reader: &mut R, mime: &str) -> bool {
         match mime {
             "image/jxl" => jxl_oxide::JxlImage::builder()
@@ -200,6 +203,7 @@ impl MediaRepository for MediaImpl {
         }
     }
 
+    #[tracing::instrument(skip(self, image))]
     fn create_thumbnail(&self, image: DynamicImage, tag: &str) -> Vec<u8> {
         let [w, h] = self.config.preview.get(tag).unwrap();
 
@@ -224,6 +228,7 @@ impl MediaRepository for MediaImpl {
         }
     }
 
+    #[tracing::instrument(skip_all)]
     fn video_size(&self, f: &NamedTempFile) -> Option<(i64, i64)> {
         if let Ok(data) = ffprobe::ffprobe(f.path())
             .inspect_err(|err| tracing::error!("Failed to ffprobe file! {err:?}"))

@@ -5,11 +5,12 @@ ARG BASE_IMAGE=ghcr.io/stoatchat/base:latest
 
 # Build Stage
 FROM ${BASE_IMAGE} AS builder
-FROM debian:12 AS debian
+FROM debian:13 AS debian
 
 # Bundle Stage
-FROM gcr.io/distroless/cc-debian12:nonroot
+FROM gcr.io/distroless/cc-debian13:nonroot
 COPY --from=builder /home/rust/src/target/release/revolt-january ./
+COPY --from=debian /runtime-libs/ /
 COPY --from=mwader/static-ffmpeg:7.1.1 /ffmpeg /usr/local/bin/
 COPY --from=mwader/static-ffmpeg:7.1.1 /ffprobe /usr/local/bin/
 COPY --from=debian /usr/bin/uname /usr/bin/uname

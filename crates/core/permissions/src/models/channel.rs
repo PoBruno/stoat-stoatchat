@@ -31,6 +31,8 @@ pub enum ChannelPermission {
     ManageRole = 1 << 3,
     /// Manage server customisation (includes emoji)
     ManageCustomisation = 1 << 4,
+    /// Allow external emoji usage
+    UseExternalEmojis = 1 << 41,
 
     // % 1 bit reserved
 
@@ -104,24 +106,27 @@ pub enum ChannelPermission {
     ViewAuditLogs = 1 << 40,
 
     /// Play soundboard sounds in a voice channel
-    UseSoundboard = 1 << 41,
+    UseSoundboard = 1 << 49,
 
     /// Upload, rename and remove soundboard sounds
     ///
     /// Separado de ManageCustomisation de proposito: quem cuida dos emoji do
     /// servidor nao e necessariamente quem deve mexer nos sons, e o contrario
     /// tambem vale.
-    ManageSoundboard = 1 << 42,
+    ManageSoundboard = 1 << 50,
 
     /// Queue and control music in a voice channel
     ///
     /// Separado de Connect porque entrar na chamada e mandar na musica que
     /// todo mundo ouve sao coisas diferentes: numa chamada de dez pessoas,
     /// quem pode escutar nao e necessariamente quem deve poder pular a faixa.
-    UseMusicBox = 1 << 43,
+    UseMusicBox = 1 << 51,
 
     // * Misc. permissions
-    // % Bits 44 to 52: free area
+    // % Bits 42 to 48: free area
+    // % Bits 49 to 51: fork Monga (soundboard e MusicBox; eram 41-43 ate a
+    // %   revisao 56, movidos porque o upstream passou a usar o 41;
+    // %   dentro de GrantAllSafe, que cobre so ate o bit 51)
     // % Bits 53 to 64: do not use
 
     // * Grant all permissions
@@ -172,7 +177,8 @@ pub static DEFAULT_PERMISSION_SERVER: Lazy<u64> = Lazy::new(|| {
     DEFAULT_PERMISSION.add(
         ChannelPermission::React
             + ChannelPermission::ChangeNickname
-            + ChannelPermission::ChangeAvatar,
+            + ChannelPermission::ChangeAvatar
+            + ChannelPermission::UseExternalEmojis,
     )
 });
 

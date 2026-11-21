@@ -4,14 +4,15 @@ use mime::Mime;
 use pdk_ip_filter_lib::IpFilter;
 use regex::Regex;
 use reqwest::{
+    Client, Response,
     dns::{Addrs, Name, Resolve},
     header::{self, CONTENT_TYPE},
-    redirect, Client, Response,
+    redirect,
 };
 use revolt_config::{config, report_internal_error};
 use revolt_files::{create_thumbnail, decode_image, image_size_vec, is_valid_image, video_size};
 use revolt_models::v0::{Embed, Image, ImageSize, Video};
-use revolt_result::{create_error, Error, Result, ToRevoltError};
+use revolt_result::{Error, Result, ToRevoltError, create_error};
 use std::net::{IpAddr, SocketAddr};
 use std::{
     io::{Cursor, Write},
@@ -33,10 +34,13 @@ lazy_static! {
         .expect("reqwest Client");
 
     /// Spoof User Agent as Discord
-    static ref RE_USER_AGENT_SPOOFING_AS_DISCORD: Regex = Regex::new("^(?:(?:vx|fx)?twitter|(?:fixv|fixup)?x|(?:old\\.|new\\.|www\\.)reddit)\\.com|klipy\\.com").expect("valid regex");
+    static ref RE_USER_AGENT_SPOOFING_AS_DISCORD: Regex = Regex::new("^(?:(?:old\\.|new\\.|www\\.)reddit)\\.com|klipy\\.com").expect("valid regex");
 
     /// Regex for matching new Reddit URLs
     static ref RE_URL_NEW_REDDIT: Regex = Regex::new("^(?:(?:new\\.|www\\.)?reddit).com").expect("valid regex");
+
+    /// Regex for matching twitter URLs (and fixers)
+    static ref RE_URL_TWITTER: Regex = Regex::new("^(?:(?:https?:)?//)?(?:(?:www|mobile)\\.)?(?:(?:vx|fx)?twitter|(?:fixv|fixup|girlcock|stupidpenis|hotyurise)?x)\\.com/(?:[^/?#]+/){1,2}status/(\\d+)(?:/[^?#]*)?(?:\\?(?:[^#]*?&)?lang=([A-Za-z\\-]{2,10})(?:[&#]|$))?").expect("valid regex");
 
     /// Regex for matching YouTube Shorts URLs
     pub static ref RE_URL_YOUTUBE_SHORTS: Regex = Regex::new("^(?:(?:https?:)?//)?(?:(?:www\\.)?youtube\\.com)/shorts/([a-zA-Z0-9_-]+)").expect("valid regex");
@@ -46,6 +50,10 @@ lazy_static! {
 
     /// Url for YouTube oembed
     pub static ref OEMBED_URL: Url = Url::parse("https://www.youtube.com/oembed").unwrap();
+
+    /// Url for Gifbox
+    pub static ref RE_URL_GIFBOX: Regex =
+    Regex::new(r"^https?://(?:www\.)?gifbox\.me/view/[\w-]+").expect("valid regex");
 
     /// Cache for proxy results
     static ref PROXY_CACHE: moka::future::Cache<String, Result<(String, Vec<u8>)>> = moka::future::Cache::builder()
@@ -306,7 +314,21 @@ impl Request {
             EMBED_CACHE.insert(url.to_owned(), embed.clone()).await;
 
             Ok(embed)
-        } else {
+        } else if let Some(match_) = RE_URL_TWITTER.captures(&url) {
+            let id = &match_[1];
+            let lang = match_.get(2).map(|e| e.as_str().to_string());
+            let embed = specialty::SpecialtySitesGenerator::twitter(id, lang).await?;
+
+            EMBED_CACHE.insert(url.to_owned(), embed.clone()).await;
+
+            Ok(embed)
+        } else if RE_URL_GIFBOX.is_match(&url) {
+            let embed = specialty::SpecialtySitesGenerator::gifbox(&url).await?;
+
+            EMBED_CACHE.insert(url.to_owned(), embed.clone()).await;
+
+            Ok(embed)
+        }  else {
             let request = Request::new_from_str(&url).await?;
             let embed = match (request.mime.type_(), request.mime.subtype()) {
                 (_, mime::HTML) => {

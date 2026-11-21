@@ -1,9 +1,9 @@
 [package]
 name = "revolt-files"
-version = "0.15.1"
-edition = "2021"
+version = "0.16.0"
+edition = "2024"
 license = "AGPL-3.0-or-later"
-authors = ["Paul Makles <me@insrt.uk>"]
+authors = ["izzy <me@insrt.uk>"]
 description = "Revolt Backend: S3 and encryption subroutines"
 repository = "https://github.com/stoatchat/stoatchat"
 
@@ -27,14 +27,14 @@ typenum = { workspace = true }
 aws-config = { workspace = true }
 aws-sdk-s3 = { workspace = true, features = ["behavior-version-latest"] }
 
-revolt-config = { workspace = true, features = [
-    "report-macros",
-] }
+revolt-config = { workspace = true, features = ["report-macros"] }
 revolt-result = { workspace = true }
 
 # image processing
 jxl-oxide = { workspace = true, features = ["image"] }
-image = { workspace = true }
+image = { workspace = true, features = [
+    "avif-native",
+] } # AVIF decoding requires dav1d
 
 # svg rendering
 usvg = { workspace = true }

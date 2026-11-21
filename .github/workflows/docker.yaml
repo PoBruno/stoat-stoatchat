@@ -2,6 +2,17 @@ name: Docker Test & Publish
 
 on:
   push:
+    branches:
+      - main
+    paths:
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "crates/**"
+      - "scripts/build-image-layer.sh"
+      - "Dockerfile"
+      - "**/Dockerfile"
+      - ".dockerignore"
+      - ".github/workflows/docker.yaml"
     tags:
       - "*"
   pull_request:
@@ -16,19 +27,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  changes:
+    runs-on: ubuntu-slim
+    outputs:
+      docker: ${{ steps.filter.outputs.docker }}
+    steps:
+      - uses: actions/checkout@v3
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            docker:
+              - 'Dockerfile'
+              - '**/Dockerfile'
+              - '.dockerignore'
+              - 'scripts/build-image-layer.sh'
+              - 'scripts/publish-debug-image.sh'
+
   base:
     name: Test base image build (fork)
     runs-on: arc-runner-set
-    if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork
+    needs: changes
+    if: github.event_name == 'pull_request' || github.event.pull_request.head.repo.fork
     steps:
       # Configure build environment
       - name: Checkout
+        if: needs.changes.outputs.docker == 'true'
         uses: actions/checkout@v3
+
       - name: Set up Docker Buildx
+        if: needs.changes.outputs.docker == 'true'
         uses: docker/setup-buildx-action@v2
 
       # Build the image
       - name: Build base image
+        if: needs.changes.outputs.docker == 'true'
         uses: docker/build-push-action@v4
         with:
           context: .
@@ -40,7 +73,7 @@ jobs:
 
   publish:
     runs-on: arc-runner-set
-    if: ${{ github.event_name != 'pull_request' || !github.event.pull_request.head.repo.fork }}
+    if: ${{ github.event_name != 'pull_request' && !(github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'chore(release):')) }}
     name: Publish Docker images
     steps:
       # Configure build environment
@@ -56,6 +89,13 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Determine whether this is the latest release
+        id: release
+        run: |
+          newest=$(git -c versionsort.suffix=-rc ls-remote --tags --refs --sort=-v:refname origin 'v*' \
+            | awk '{print $2}' | grep -v -- '-rc\.' | head -n1)
+          echo "latest=$([[ "$GITHUB_REF" == "$newest" ]] && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
       - name: Determine base image tag
         id: base
@@ -84,6 +124,7 @@ jobs:
         with:
           images: |
             ghcr.io/stoatchat/api
+          flavor: latest=${{ steps.release.outputs.latest }}
       - name: Publish
         uses: docker/build-push-action@v4
         with:
@@ -103,6 +144,7 @@ jobs:
         with:
           images: |
             ghcr.io/stoatchat/events
+          flavor: latest=${{ steps.release.outputs.latest }}
       - name: Publish
         uses: docker/build-push-action@v4
         with:
@@ -122,6 +164,7 @@ jobs:
         with:
           images: |
             ghcr.io/stoatchat/file-server
+          flavor: latest=${{ steps.release.outputs.latest }}
       - name: Publish
         uses: docker/build-push-action@v4
         with:
@@ -141,6 +184,7 @@ jobs:
         with:
           images: |
             ghcr.io/stoatchat/proxy
+          flavor: latest=${{ steps.release.outputs.latest }}
       - name: Publish
         uses: docker/build-push-action@v4
         with:
@@ -160,6 +204,7 @@ jobs:
         with:
           images: |
             ghcr.io/stoatchat/gifbox
+          flavor: latest=${{ steps.release.outputs.latest }}
       - name: Publish
         uses: docker/build-push-action@v4
         with:
@@ -179,6 +224,7 @@ jobs:
         with:
           images: |
             ghcr.io/stoatchat/crond
+          flavor: latest=${{ steps.release.outputs.latest }}
       - name: Publish
         uses: docker/build-push-action@v4
         with:
@@ -198,6 +244,7 @@ jobs:
         with:
           images: |
             ghcr.io/stoatchat/pushd
+          flavor: latest=${{ steps.release.outputs.latest }}
       - name: Publish
         uses: docker/build-push-action@v4
         with:
@@ -217,6 +264,7 @@ jobs:
         with:
           images: |
             ghcr.io/stoatchat/voice-ingress
+          flavor: latest=${{ steps.release.outputs.latest }}
       - name: Publish
         uses: docker/build-push-action@v4
         with:

@@ -1,19 +1,43 @@
-use std::collections::HashSet;
-use std::sync::Arc;
+use std::{
+    collections::HashSet,
+    sync::{Arc, OnceLock},
+    time::Duration,
+};
 
-use crate::events::rabbit::*;
 use crate::User;
+use crate::events::{client::EventV1, rabbit::*};
 use lapin::{
+    BasicProperties, Channel, Connection, ConnectionProperties, Error as AMQPError,
     options::BasicPublishOptions,
     protocol::basic::AMQPProperties,
     types::{AMQPValue, FieldTable},
-    Channel, Connection, ConnectionProperties, Error as AMQPError,
 };
+use revolt_config::config;
 use revolt_models::v0::PushNotification;
 use revolt_presence::filter_online;
 use revolt_result::Result;
 
 use serde_json::to_string;
+
+static AMQP_INSTANCE: OnceLock<AMQP> = OnceLock::new();
+
+pub fn get_amqp() -> &'static AMQP {
+    AMQP_INSTANCE.get().expect("No AMQP instance set.")
+}
+
+/// How long to wait for the first connection before giving up, retries would otherwise hang startup forever
+pub const AMQP_CONNECT_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Reconnect automatically, otherwise a RabbitMQ restart leaves us dead until we restart too
+pub fn amqp_connection_properties() -> ConnectionProperties {
+    ConnectionProperties::default()
+        .configure_backoff(|backoff| {
+            backoff
+                .with_max_delay(Duration::from_secs(30))
+                .without_max_times()
+        })
+        .enable_auto_recover()
+}
 
 #[derive(Clone)]
 pub struct AMQP {
@@ -25,13 +49,14 @@ pub struct AMQP {
     ack_notification_message: Arc<Channel>,
     dm_call_updated: Arc<Channel>,
     process_ack: Arc<Channel>,
+    publish_event: Arc<Channel>,
     #[allow(unused)]
     connection: Arc<Connection>,
 }
 
 impl AMQP {
     pub async fn new(connection: Arc<Connection>) -> Self {
-        Self {
+        let this = Self {
             friend_request_accepted: Self::create_channel(&connection).await,
             friend_request_received: Self::create_channel(&connection).await,
             generic_message: Self::create_channel(&connection).await,
@@ -40,25 +65,34 @@ impl AMQP {
             ack_notification_message: Self::create_channel(&connection).await,
             dm_call_updated: Self::create_channel(&connection).await,
             process_ack: Self::create_channel(&connection).await,
+            publish_event: Self::create_channel(&connection).await,
             connection,
-        }
+        };
+
+        let _ = AMQP_INSTANCE.set(this.clone());
+
+        this
     }
 
     pub async fn new_auto() -> Self {
         let config = revolt_config::config().await;
 
         let connection = Arc::new(
-            Connection::connect(
-                &format!(
-                    "amqp://{}:{}@{}:{}",
-                    &config.rabbit.username,
-                    &config.rabbit.password,
-                    &config.rabbit.host,
-                    &config.rabbit.port,
+            tokio::time::timeout(
+                AMQP_CONNECT_TIMEOUT,
+                Connection::connect(
+                    &format!(
+                        "amqp://{}:{}@{}:{}",
+                        &config.rabbit.username,
+                        &config.rabbit.password,
+                        &config.rabbit.host,
+                        &config.rabbit.port,
+                    ),
+                    amqp_connection_properties(),
                 ),
-                ConnectionProperties::default(),
             )
             .await
+            .expect("Timed out connecting to RabbitMQ")
             .expect("Failed to connect to RabbitMQ"),
         );
 
@@ -72,6 +106,10 @@ impl AMQP {
                 .await
                 .expect("Failed to create channel"),
         )
+    }
+
+    pub fn connection(&self) -> &Arc<Connection> {
+        &self.connection
     }
 
     pub async fn friend_request_accepted(
@@ -374,6 +412,57 @@ impl AMQP {
                 AMQPProperties::default()
                     .with_content_type("application/json".into())
                     .with_delivery_mode(2),
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn publish_event(&self, channel: String, event: &EventV1) -> Result<(), AMQPError> {
+        let mut headers = FieldTable::default();
+        headers.insert("c".into(), AMQPValue::LongString(channel.into()));
+
+        let config = config().await;
+
+        self.publish_event
+            .basic_publish(
+                config.rabbit.default_exchange.clone().into(),
+                config.rabbit.queues.events.into(),
+                BasicPublishOptions::default(),
+                &erltf_serde::to_bytes(event).unwrap(),
+                BasicProperties::default().with_headers(headers),
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    pub async fn publish_event_broadcast(
+        &self,
+        channels: Vec<String>,
+        event: &EventV1,
+    ) -> Result<(), AMQPError> {
+        let mut headers = FieldTable::default();
+        headers.insert(
+            "c".into(),
+            AMQPValue::FieldArray(
+                channels
+                    .into_iter()
+                    .map(|c| AMQPValue::LongString(c.into()))
+                    .collect::<Vec<_>>()
+                    .into(),
+            ),
+        );
+
+        let config = config().await;
+
+        self.publish_event
+            .basic_publish(
+                config.rabbit.default_exchange.clone().into(),
+                config.rabbit.queues.events.into(),
+                BasicPublishOptions::default(),
+                &erltf_serde::to_bytes(event).unwrap(),
+                BasicProperties::default().with_headers(headers),
             )
             .await?;
 

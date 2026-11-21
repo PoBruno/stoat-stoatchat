@@ -30,10 +30,30 @@ extern crate bson;
 compile_error!("tokio-runtime feature must be enabled.");
 
 #[macro_export]
+#[doc(hidden)]
+macro_rules! query_span {
+    ( $type: ident, $collection: expr ) => {
+        ::tracing::info_span!(
+            "mongodb",
+            otel.name = format!("{} {}", stringify!($type), $collection),
+            otel.kind = "client",
+            db.system = "mongodb",
+            db.collection.name = $collection,
+            db.operation.name = stringify!($type),
+        )
+    };
+}
+
+#[macro_export]
 #[cfg(debug_assertions)]
 macro_rules! query {
     ( $self: ident, $type: ident, $collection: expr, $($rest:expr),+ ) => {
-        Ok($self.$type($collection, $($rest),+).await.unwrap())
+        Ok(::tracing::Instrument::instrument(
+            $self.$type($collection, $($rest),+),
+            $crate::query_span!($type, $collection),
+        )
+        .await
+        .unwrap())
     };
 }
 
@@ -41,11 +61,15 @@ macro_rules! query {
 #[cfg(not(debug_assertions))]
 macro_rules! query {
     ( $self: ident, $type: ident, $collection: expr, $($rest:expr),+ ) => {
-        $self.$type($collection, $($rest),+).await
-            .map_err(|err| {
-                revolt_config::capture_internal_error!(err);
-                create_database_error!(stringify!($type), $collection)
-            })
+        ::tracing::Instrument::instrument(
+            $self.$type($collection, $($rest),+),
+            $crate::query_span!($type, $collection),
+        )
+        .await
+        .map_err(|err| {
+            revolt_config::capture_internal_error!(err);
+            create_database_error!(stringify!($type), $collection)
+        })
     };
 }
 
@@ -165,6 +189,20 @@ macro_rules! database_test {
         .await
         .expect("Database connection failed.");
 
+        $crate::AMQP::new_auto().await
+        .connection().create_channel().await
+        .expect("channel").exchange_declare(
+                "revolt.default".into(),
+                ExchangeKind::Topic,
+                ExchangeDeclareOptions {
+                    durable: true,
+                    ..Default::default()
+                },
+                FieldTable::default(),
+            )
+            .await
+            .expect("Failed to declare test exchange");
+
         db.drop_database().await;
 
         #[allow(clippy::redundant_closure_call)]
@@ -183,7 +221,7 @@ pub mod events;
 pub mod tasks;
 
 mod amqp;
-pub use amqp::amqp::AMQP;
+pub use amqp::amqp::{AMQP, AMQP_CONNECT_TIMEOUT, amqp_connection_properties};
 
 #[cfg(feature = "voice")]
 pub mod voice;

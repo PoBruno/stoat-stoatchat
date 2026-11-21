@@ -26,7 +26,7 @@ struct MigrationInfo {
     revision: i32,
 }
 
-pub const LATEST_REVISION: i32 = 56; // MUST BE +1 to last migration
+pub const LATEST_REVISION: i32 = 60; // MUST BE +1 to last migration
 
 pub async fn migrate_database(db: &MongoDb) {
     let migrations = db.col::<Document>("migrations");
@@ -1090,6 +1090,9 @@ pub async fn run_migrations(db: &MongoDb, revision: i32) -> i32 {
                     server,
                     creator,
                     channel,
+                    max_uses: None,
+                    uses: 0,
+                    expires: None,
                 },
                 OldInvite::Group {
                     code,
@@ -1099,6 +1102,9 @@ pub async fn run_migrations(db: &MongoDb, revision: i32) -> i32 {
                     code,
                     creator,
                     channel,
+                    max_uses: None,
+                    uses: 0,
+                    expires: None,
                 },
             })
             .collect::<Vec<Invite>>();
@@ -1299,7 +1305,9 @@ pub async fn run_migrations(db: &MongoDb, revision: i32) -> i32 {
             }
 
             for session in sessions {
-                let timestamp = iso8601_timestamp::Timestamp::from(Ulid::from_string(&session._id).unwrap().datetime());
+                let timestamp = iso8601_timestamp::Timestamp::from(
+                    Ulid::from_string(&session._id).unwrap().datetime(),
+                );
 
                 db.db()
                     .collection::<Document>("sessions")
@@ -1478,14 +1486,15 @@ pub async fn run_migrations(db: &MongoDb, revision: i32) -> i32 {
     if revision <= 50 {
         info!("Running migration [revision 50 / 13-04-2026]: Rename invites collection to account_invites");
 
-        let result = db.db()
+        let result = db
+            .db()
             .client()
             .database("admin")
             .run_command(doc! {
-            "renameCollection": "revolt.invites",
-            "to": "revolt.account_invites",
-            "dropTarget": true
-        })
+                "renameCollection": "revolt.invites",
+                "to": "revolt.account_invites",
+                "dropTarget": true
+            })
             .await;
 
         if let Err(e) = result {
@@ -1496,7 +1505,7 @@ pub async fn run_migrations(db: &MongoDb, revision: i32) -> i32 {
         }
     }
 
-    if revision >= 51 {
+    if revision <= 51 {
         info!("Running migration [revision 51 / 28-11-2025]: Add audit logs collection");
 
         db.db()
@@ -1704,6 +1713,193 @@ pub async fn run_migrations(db: &MongoDb, revision: i32) -> i32 {
                         },
                     }
                 },
+            )
+            .await
+            .expect("Failed to update default_permissions");
+    };
+
+    if revision <= 56 {
+        info!("Running migration [revision 56 / 21-11-2026]: Move Monga permission bits 41-43 to 49-51");
+
+        // O fork gravou UseSoundboard/ManageSoundboard/UseMusicBox nos bits
+        // 41-43. O upstream passou a usar o 41 (UseExternalEmojis) e vai
+        // continuar crescendo a partir dali, entao os nossos foram para 49-51.
+        // Esta migration move os valores ja gravados: padrao do servidor,
+        // roles, overrides de canal, permissoes de grupo e de webhook.
+        //
+        // Precisa rodar ANTES da 59, que liga o bit 41 em todos os servidores.
+        // Bits 49-51 ja ligados sao preservados (OR), entao rodar de novo nao
+        // estraga nada: na segunda vez 41-43 estao vazios.
+        const OLD: u64 = 0b111 << 41;
+
+        fn remap(value: &Bson) -> Option<i64> {
+            let raw = match value {
+                Bson::Int64(v) => *v as u64,
+                Bson::Int32(v) => *v as u64,
+                Bson::Double(v) => *v as u64,
+                _ => return None,
+            };
+
+            if raw & OLD == 0 {
+                return None;
+            }
+
+            Some(((raw & !OLD) | (((raw & OLD) >> 41) << 49)) as i64)
+        }
+
+        fn remap_override(prefix: &str, value: Option<&Bson>, set: &mut Document) {
+            if let Some(Bson::Document(field)) = value {
+                for key in ["a", "d"] {
+                    if let Some(v) = field.get(key).and_then(remap) {
+                        set.insert(format!("{prefix}.{key}"), v);
+                    }
+                }
+            }
+        }
+
+        let servers = db.col::<Document>("servers");
+        let mut cursor = servers.find(doc! {}).await.unwrap();
+        while let Some(Ok(document)) = cursor.next().await {
+            let Ok(id) = document.get_str("_id") else {
+                continue;
+            };
+
+            let mut set = doc! {};
+            if let Some(v) = document.get("default_permissions").and_then(remap) {
+                set.insert("default_permissions", v);
+            }
+
+            if let Ok(roles) = document.get_document("roles") {
+                for (role_id, role) in roles {
+                    if let Bson::Document(role) = role {
+                        remap_override(
+                            &format!("roles.{role_id}.permissions"),
+                            role.get("permissions"),
+                            &mut set,
+                        );
+                    }
+                }
+            }
+
+            if !set.is_empty() {
+                servers
+                    .update_one(doc! { "_id": id }, doc! { "$set": set })
+                    .await
+                    .expect("Failed to remap server permissions");
+            }
+        }
+
+        let channels = db.col::<Document>("channels");
+        let mut cursor = channels.find(doc! {}).await.unwrap();
+        while let Some(Ok(document)) = cursor.next().await {
+            let Ok(id) = document.get_str("_id") else {
+                continue;
+            };
+
+            let mut set = doc! {};
+
+            // Grupo: `permissions` e um inteiro simples.
+            if let Some(v) = document.get("permissions").and_then(remap) {
+                set.insert("permissions", v);
+            }
+
+            remap_override(
+                "default_permissions",
+                document.get("default_permissions"),
+                &mut set,
+            );
+
+            if let Ok(roles) = document.get_document("role_permissions") {
+                for (role_id, value) in roles {
+                    remap_override(&format!("role_permissions.{role_id}"), Some(value), &mut set);
+                }
+            }
+
+            if !set.is_empty() {
+                channels
+                    .update_one(doc! { "_id": id }, doc! { "$set": set })
+                    .await
+                    .expect("Failed to remap channel permissions");
+            }
+        }
+
+        let webhooks = db.col::<Document>("channel_webhooks");
+        let mut cursor = webhooks.find(doc! {}).await.unwrap();
+        while let Some(Ok(document)) = cursor.next().await {
+            let Ok(id) = document.get_str("_id") else {
+                continue;
+            };
+
+            if let Some(v) = document.get("permissions").and_then(remap) {
+                webhooks
+                    .update_one(doc! { "_id": id }, doc! { "$set": { "permissions": v } })
+                    .await
+                    .expect("Failed to remap webhook permissions");
+            }
+        }
+    };
+
+    // As tres abaixo vieram do upstream como 52-54. Aqui essas revisoes ja
+    // eram do forum/soundboard e a producao ja estava na 56, entao foram
+    // renumeradas -- senao nunca rodariam.
+    if revision <= 57 {
+        let config = revolt_config::config().await;
+        if config.production {
+            info!("Running migration [revision 57 / 20-08-2026]: Discover endpoints");
+            db.db()
+                .create_collection("discover_requests")
+                .await
+                .expect("Failed to create discover_requests collection");
+
+            db.db()
+                .run_command(doc! {
+                    "createIndexes": "discover_requests",
+                    "indexes": [
+                        {
+                            "key": {
+                                "request_type": 1,
+                                "request_id": 1
+                            },
+                            "name": "request_type_id"
+                        }
+                    ]
+                })
+                .await
+                .expect("Failed to create index");
+        } else {
+            info!("Skipping migration [revision 57 / 20-08-2026]: Discover endpoints");
+        }
+    }
+
+    if revision <= 58 {
+        info!(
+            "Running migration [revision 58 / 30-08-2026]: [FIX] clean bad last_channel_id values"
+        );
+        db.db()
+            .collection::<Document>("channels")
+            .update_many(
+                doc! {"last_message_id": {"$regex": "\""}},
+                vec![
+                    doc! {"$set": {"last_message_id": {"$trim": {"input": "$last_message_id", "chars": "\""}}}},
+                ],
+            )
+            .await
+            .expect("Failed to clean up channels");
+    }
+
+    if revision <= 59 {
+        info!("Running migration [revision 59 / 14-09-2026]: Add UseExternalEmojis to default permissions");
+
+        db.col::<Document>("servers")
+            .update_many(
+                doc! {},
+                doc! {
+                "$bit": {
+                    "default_permissions": {
+                        "or": ChannelPermission::UseExternalEmojis as i64
+                    },
+                },
+            },
             )
             .await
             .expect("Failed to update default_permissions");

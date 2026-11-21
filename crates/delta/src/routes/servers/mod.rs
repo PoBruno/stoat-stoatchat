@@ -6,6 +6,7 @@ mod ban_create;
 mod ban_list;
 mod ban_remove;
 mod channel_create;
+mod discover;
 mod emoji_list;
 mod sound_list;
 mod invites_fetch;
@@ -54,5 +55,8 @@ pub fn routes() -> (Vec<Route>, OpenApi) {
         sound_list::list_sounds,
         roles_edit_positions::edit_role_ranks,
         audit_log_query::query,
+        discover::discover_add::discover_add,
+        discover::discover_get::discover_get,
+        discover::discover_remove::discover_remove,
     ]
 }

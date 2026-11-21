@@ -1,5 +1,5 @@
 # Build Stage
-FROM --platform="${BUILDPLATFORM}" rust:1.92.0-slim-bookworm
+FROM --platform="${BUILDPLATFORM}" rust:1.92.0-slim-trixie
 USER 0:0
 WORKDIR /home/rust/src
 
@@ -14,6 +14,7 @@ RUN apt-get update && \
     apt-get install -y \
     make \
     pkg-config \
+    libdav1d-dev:"${TARGETARCH}" \
     libssl-dev:"${TARGETARCH}"
 COPY scripts/build-image-layer.sh /tmp/
 RUN sh /tmp/build-image-layer.sh tools
@@ -32,6 +33,7 @@ COPY crates/core/presence/Cargo.toml ./crates/core/presence/
 COPY crates/core/result/Cargo.toml ./crates/core/result/
 COPY crates/core/coalesced/Cargo.toml ./crates/core/coalesced/
 COPY crates/core/ratelimits/Cargo.toml ./crates/core/ratelimits/
+COPY crates/common/otel/Cargo.toml ./crates/common/otel/
 COPY crates/services/autumn/Cargo.toml ./crates/services/autumn/
 COPY crates/services/january/Cargo.toml ./crates/services/january/
 COPY crates/services/gifbox/Cargo.toml ./crates/services/gifbox/

@@ -6,7 +6,7 @@ ARG BASE_IMAGE=ghcr.io/stoatchat/base:latest
 # Build Stage
 FROM ${BASE_IMAGE} AS builder
 # Bundle Stage
-FROM gcr.io/distroless/cc-debian12:nonroot
+FROM gcr.io/distroless/cc-debian13:nonroot
 COPY --from=builder /home/rust/src/target/release/revolt-gifbox ./
 
 EXPOSE 14706

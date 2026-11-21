@@ -1,10 +1,16 @@
 use axum::http::request::Parts;
-use revolt_ratelimits::ratelimiter::RatelimitResolver;
+use revolt_database::User;
+use revolt_ratelimits::ratelimiter::{RatelimitResolver, async_trait};
 
 pub struct GifboxRatelimits;
 
+#[async_trait]
 impl RatelimitResolver<Parts> for GifboxRatelimits {
-    fn resolve_bucket<'a>(&self, parts: &'a Parts) -> (&'a str, Option<&'a str>) {
+    async fn resolve_bucket<'a>(
+        &self,
+        parts: &'a Parts,
+        _user: Option<&User>,
+    ) -> (&'a str, Option<&'a str>) {
         let path = parts
             .uri
             .path()
@@ -16,17 +22,22 @@ impl RatelimitResolver<Parts> for GifboxRatelimits {
             Some("categories") => ("categories", None),
             Some("trending") => ("trending", None),
             Some("search") => ("search", None),
-            _ => ("any", None),
+            _ => ("any_gfbx", None),
         }
     }
 
-    fn resolve_bucket_limit(&self, bucket: &str) -> u32 {
-        match bucket {
+    async fn resolve_bucket_limit(&self, bucket: &str, _user: Option<&User>) -> (u32, u32) {
+        let limit = match bucket {
             "categories" => 2,
             "trending" => 5,
             "search" => 10,
-            "any" => u32::MAX,
-            _ => unreachable!("Bucket defined but no limit set"),
-        }
+            _ => u32::MAX,
+        };
+
+        (limit, 10)
+    }
+
+    fn apply_bucket(&self, bucket: &str, resource: Option<&str>) -> String {
+        bucket.to_string()
     }
 }

@@ -1,9 +1,9 @@
 [package]
 name = "revolt-database"
-version = "0.15.1"
-edition = "2021"
+version = "0.16.0"
+edition = "2024"
 license = "AGPL-3.0-or-later"
-authors = ["Paul Makles <me@insrt.uk>"]
+authors = ["izzy <me@insrt.uk>"]
 description = "Revolt Backend: Database Implementation"
 repository = "https://github.com/stoatchat/stoatchat"
 
@@ -16,12 +16,7 @@ mongodb = ["dep:mongodb", "bson"]
 # ... Other
 tasks = ["isahc", "linkify", "url-escape"]
 tokio-runtime = ["tokio"]
-rocket-impl = [
-    "rocket",
-    "schemars",
-    "revolt_okapi",
-    "revolt_rocket_okapi",
-]
+rocket-impl = ["rocket", "schemars", "revolt_okapi", "revolt_rocket_okapi"]
 axum-impl = ["axum", "revolt-result/axum", "utoipa"]
 redis-is-patched = ["revolt-presence/redis-is-patched"]
 voice = ["livekit-api", "livekit-protocol", "livekit-runtime"]
@@ -41,6 +36,7 @@ revolt-coalesced = { workspace = true }
 
 # Utility
 log = { workspace = true }
+tracing = { workspace = true }
 lru = { workspace = true }
 rand = { workspace = true }
 ulid = { workspace = true }
@@ -62,9 +58,12 @@ serde_json = { workspace = true }
 revolt_optional_struct = { workspace = true }
 serde = { workspace = true }
 iso8601-timestamp = { workspace = true, features = ["serde", "bson"] }
+erltf_serde = { workspace = true, features = ["elixir-interop"] }
 
 # Events
-redis-kiss = { workspace = true, default-features = false, features = ["tokio-runtime"] }
+redis-kiss = { workspace = true, default-features = false, features = [
+    "tokio-runtime",
+] }
 
 # Database
 bson = { workspace = true, optional = true }
@@ -97,7 +96,9 @@ revolt_rocket_okapi = { workspace = true, optional = true }
 lapin = { workspace = true, features = ["tokio"] }
 
 # Voice
-livekit-api = { workspace = true, features = ["rustls-tls-native-roots"], optional = true }
+livekit-api = { workspace = true, features = [
+    "rustls-tls-native-roots",
+], optional = true }
 livekit-protocol = { workspace = true, optional = true }
 livekit-runtime = { workspace = true, features = ["tokio"], optional = true }
 

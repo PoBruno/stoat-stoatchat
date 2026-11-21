@@ -117,7 +117,7 @@ mod test {
 
     #[rocket::async_test]
     async fn pin_message() {
-        let mut harness = TestHarness::new().await;
+        let harness = TestHarness::new().await;
         let (_, session, user) = harness.new_user().await;
 
         let (server, channels) = Server::create(
@@ -136,6 +136,7 @@ mod test {
             .await
             .expect("Failed to create member");
         let channel = &channels[0];
+        let mut pubsub = PubSubTestHelper::new(channel.id()).await;
 
         let message = Message::create_from_api(
             &harness.db,
@@ -176,8 +177,8 @@ mod test {
         assert_eq!(response.status(), Status::NoContent);
         drop(response);
 
-        harness
-            .wait_for_event(channel.id(), |event| match event {
+        pubsub
+            .wait_for_event(|event| match event {
                 EventV1::Message(message) => match &message.system {
                     Some(SystemMessage::MessagePinned { by, .. }) => {
                         assert_eq!(by, &user.id);
@@ -190,8 +191,8 @@ mod test {
             })
             .await;
 
-        harness
-            .wait_for_event(channel.id(), |event| match event {
+        pubsub
+            .wait_for_event(|event| match event {
                 EventV1::MessageUpdate {
                     id,
                     channel: channel_id,

@@ -111,7 +111,7 @@ mod test {
 
     #[rocket::async_test]
     async fn unpin_message() {
-        let mut harness = TestHarness::new().await;
+        let harness = TestHarness::new().await;
         let (_, session, user) = harness.new_user().await;
 
         let (server, channels) = Server::create(
@@ -127,6 +127,7 @@ mod test {
         .expect("Failed to create test server");
 
         let channel = &channels[0];
+        let mut pubsub = PubSubTestHelper::new(channel.id()).await;
 
         Member::create(&harness.db, &server, &user, Some(channels.clone()))
             .await
@@ -188,8 +189,8 @@ mod test {
         assert_eq!(response.status(), Status::NoContent);
         drop(response);
 
-        harness
-            .wait_for_event(channel.id(), |event| match event {
+        pubsub
+            .wait_for_event(|event| match event {
                 EventV1::Message(message) => match &message.system {
                     Some(SystemMessage::MessageUnpinned { by, .. }) => {
                         assert_eq!(by, &user.id);
@@ -202,8 +203,8 @@ mod test {
             })
             .await;
 
-        harness
-            .wait_for_event(channel.id(), |event| match event {
+        pubsub
+            .wait_for_event(|event| match event {
                 EventV1::MessageUpdate { id, clear, .. } => {
                     assert_eq!(&message.id, id);
                     assert_eq!(clear, &[FieldsMessage::Pinned]);
