@@ -39,12 +39,14 @@ impl<'r> FromRequest<'r> for ValidatedTicket {
     async fn from_request(request: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
         match request.guard::<MFATicket>().await {
             Outcome::Success(ticket) => {
-                if ticket.validated && let Outcome::Success(session) = Session::from_request(request).await && session.user_id == ticket.account_id {
+                let owns_ticket = ticket.validated
+                    && matches!(
+                        Session::from_request(request).await,
+                        Outcome::Success(session) if session.user_id == ticket.account_id
+                    );
 
-                    let db = request
-                        .rocket()
-                        .state::<Database>()
-                        .expect("`Database`");
+                if owns_ticket {
+                    let db = request.rocket().state::<Database>().expect("`Database`");
 
                     if ticket.claim(db).await.is_ok() {
                         Outcome::Success(ValidatedTicket(ticket))
@@ -69,7 +71,13 @@ impl<'r> FromRequest<'r> for UnvalidatedTicket {
     async fn from_request(request: &'r Request<'_>) -> request::Outcome<Self, Self::Error> {
         match request.guard::<MFATicket>().await {
             Outcome::Success(ticket) => {
-                if !ticket.validated && let Outcome::Success(session) = Session::from_request(request).await && session.user_id == ticket.account_id {
+                let owns_ticket = !ticket.validated
+                    && matches!(
+                        Session::from_request(request).await,
+                        Outcome::Success(session) if session.user_id == ticket.account_id
+                    );
+
+                if owns_ticket {
                     Outcome::Success(UnvalidatedTicket(ticket))
                 } else {
                     Outcome::Error((Status::Forbidden, create_error!(InvalidToken)))

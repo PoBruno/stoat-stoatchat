@@ -36,6 +36,11 @@ pub struct Error {
     pub error_type: ErrorType,
 
     /// Where this error occurred
+    ///
+    /// Omitido na resposta para alguns erros de autenticacao (advisory
+    /// GHSA-h44h-xx2j-hp56); o `default` deixa o Deserialize aceitar isso.
+    /// No upstream o campo virou `Option<String>`.
+    #[cfg_attr(feature = "serde", serde(default))]
     pub location: String,
 }
 

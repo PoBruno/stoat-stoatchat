@@ -37,13 +37,14 @@ where
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self> {
         let db = Database::from_ref(state);
 
-        if let Ok(ticket) = MFATicket::from_request_parts(parts, state).await
-            && ticket.validated
-            && let Ok(session) = Session::from_request_parts(parts, state).await
-            && session.user_id == ticket.account_id
-            && ticket.claim(&db).await.is_ok()
-        {
-            return Ok(ValidatedTicket(ticket));
+        if let Ok(ticket) = MFATicket::from_request_parts(parts, state).await {
+            if ticket.validated {
+                if let Ok(session) = Session::from_request_parts(parts, state).await {
+                    if session.user_id == ticket.account_id && ticket.claim(&db).await.is_ok() {
+                        return Ok(ValidatedTicket(ticket));
+                    }
+                }
+            }
         };
 
         Err(create_error!(InvalidToken))
@@ -59,12 +60,14 @@ where
     type Rejection = Error;
 
     async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self> {
-        if let Ok(ticket) = MFATicket::from_request_parts(parts, state).await
-            && !ticket.validated
-            && let Ok(session) = Session::from_request_parts(parts, state).await
-            && session.user_id == ticket.account_id
-        {
-            return Ok(UnvalidatedTicket(ticket));
+        if let Ok(ticket) = MFATicket::from_request_parts(parts, state).await {
+            if !ticket.validated {
+                if let Ok(session) = Session::from_request_parts(parts, state).await {
+                    if session.user_id == ticket.account_id {
+                        return Ok(UnvalidatedTicket(ticket));
+                    }
+                }
+            }
         };
 
         Err(create_error!(InvalidToken))
