@@ -27,7 +27,7 @@ pub async fn message_unpin(
     let channel = target.as_channel(db).await?;
 
     match &channel {
-        Channel::TextChannel { .. } | Channel::Group { .. } => {
+        Channel::TextChannel { .. } | Channel::ForumChannel { .. } | Channel::Group { .. } => {
             let mut query = DatabasePermissionQuery::new(db, &user).channel(&channel);
             calculate_channel_permissions(&mut query)
                 .await
