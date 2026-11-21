@@ -6,6 +6,12 @@ ARG BASE_IMAGE=ghcr.io/stoatchat/base:latest
 # Build Stage
 FROM ${BASE_IMAGE} AS builder
 FROM debian:13 AS debian
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends libdav1d7 && \
+    mkdir -p /runtime-libs && \
+    for library in /usr/lib/*-linux-gnu/libdav1d.so.7*; do \
+        cp -a --parents "$library" /runtime-libs; \
+    done
 
 # Bundle Stage
 FROM gcr.io/distroless/cc-debian13:nonroot
