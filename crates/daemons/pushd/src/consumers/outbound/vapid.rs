@@ -134,6 +134,7 @@ impl Consumer for VapidOutboundConsumer {
                     revolt_models::v0::Channel::DirectMessage { .. } => "DirectMessage",
                     revolt_models::v0::Channel::Group { .. } => "Group",
                     revolt_models::v0::Channel::TextChannel { .. } => "TextChannel",
+                    revolt_models::v0::Channel::ForumChannel { .. } => "ForumChannel",
                 };
 
                 serde_json::to_string(&serde_json::json!({

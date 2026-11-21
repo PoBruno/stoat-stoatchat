@@ -3,7 +3,7 @@ use std::time::Duration;
 use revolt_config::config;
 use revolt_result::{create_error, Error, Result};
 use revolt_rocket_okapi::{
-    gen::OpenApiGenerator,
+    r#gen::OpenApiGenerator,
     request::{OpenApiFromRequest, RequestHeaderInput},
     revolt_okapi::openapi3::{Parameter, ParameterValue},
     OpenApiError,
