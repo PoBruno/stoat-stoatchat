@@ -36,6 +36,16 @@ pub struct DataProgress {
     /// A faixa chegou ao fim sozinha
     #[serde(default)]
     pub finished: bool,
+    /// De qual faixa é o aviso. Opcional para aceitar agentes antigos.
+    #[serde(default)]
+    pub track_id: Option<String>,
+    /// O agente parou por conta própria: desistiu (várias faixas seguidas
+    /// sem áudio) ou ficou sozinho na chamada (todo mundo saiu).
+    ///
+    /// Sem isto o servidor seguia achando que tocava: a fila ficava presa
+    /// numa faixa "tocando" em silêncio, e a barra corria até o fim dela.
+    #[serde(default)]
+    pub stopped: bool,
 }
 
 /// Quem pode mexer na musica da chamada.
@@ -363,9 +373,35 @@ pub async fn progress(
     let dados = data.into_inner();
     estado.agent_checked_in();
 
-    if !dados.finished {
-        filas.report_position(&dados.channel_id, dados.position_s);
+    if dados.stopped {
+        // Pausa, sem limpar: quem voltar para a chamada encontra a fila como
+        // estava, em "Pausado", e aperta tocar. Aviso de uma faixa que já
+        // saiu (alguém pulou nesse meio-tempo) não pausa a nova.
+        let id = dados.track_id.as_deref();
+        filas.update(&dados.channel_id, |f| {
+            if id.is_none() || f.current.as_ref().map(|t| t.id.as_str()) == id {
+                f.playing = false;
+            }
+        });
         return Ok(EmptyResponse);
+    }
+
+    if !dados.finished {
+        filas.report_position(
+            &dados.channel_id,
+            dados.position_s,
+            dados.track_id.as_deref(),
+        );
+        return Ok(EmptyResponse);
+    }
+
+    // Fim de uma faixa que já não é a atual (alguém pulou enquanto o aviso
+    // viajava): avançar agora pularia a faixa nova também.
+    if let Some(id) = dados.track_id.as_deref() {
+        let atual = filas.get(&dados.channel_id).current.map(|t| t.id);
+        if atual.as_deref() != Some(id) {
+            return Ok(EmptyResponse);
+        }
     }
 
     // `false`: a faixa acabou sozinha, então repetir-uma deve repetir.

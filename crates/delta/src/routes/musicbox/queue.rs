@@ -32,6 +32,14 @@ pub struct ChannelQueue {
     pub current: Option<Track>,
     /// Segundos já tocados da faixa atual
     pub position_s: u32,
+    /// A faixa atual foi pedida mas o áudio ainda não começou a sair.
+    ///
+    /// Entre o pedido e o primeiro som passam de 5 a 15 s (abrir a página,
+    /// entrar na sala, começar o download). Sem isto a barra corria nesse
+    /// tempo e voltava a zero quando a música começava de verdade: parecia
+    /// tocar sem som. Enquanto `loading`, a posição não anda.
+    #[serde(default)]
+    pub loading: bool,
     pub queue: Vec<Track>,
     pub repeat: Repeat,
     pub shuffle: bool,
@@ -90,7 +98,7 @@ impl Queues {
         let inner = self.inner.lock().expect("musicbox queues");
         let mut fila = inner.filas.get(channel_id).cloned().unwrap_or_default();
 
-        if fila.playing {
+        if fila.playing && !fila.loading {
             if let Some(quando) = inner.marcado.get(channel_id) {
                 let projetada = fila.position_s + quando.elapsed().as_secs() as u32;
 
@@ -117,13 +125,24 @@ impl Queues {
         let antes = (fila.current.as_ref().map(|t| t.id.clone()), fila.playing);
         alterar(fila);
         let depois = (fila.current.as_ref().map(|t| t.id.clone()), fila.playing);
+        let mudou = antes != depois;
+
+        // Faixa nova, ou retomada depois da pausa (que recomeça o download):
+        // até o agente avisar que o som saiu, está carregando. Parado não
+        // carrega nada.
+        if mudou {
+            fila.loading = fila.playing && fila.current.is_some();
+        }
+        if !fila.playing {
+            fila.loading = false;
+        }
 
         let resultado = fila.clone();
 
         // Reinicia a contagem quando a faixa muda ou a reprodução para e
         // volta; sem isso a posição projetada continuaria correndo por cima da
         // faixa nova.
-        if antes != depois {
+        if mudou {
             inner.marcado.insert(channel_id.to_string(), Instant::now());
         }
 
@@ -131,11 +150,22 @@ impl Queues {
     }
 
     /// Marca a posição informada pelo agente.
-    pub fn report_position(&self, channel_id: &str, position_s: u32) {
+    ///
+    /// Aviso do agente quer dizer que o áudio está saindo, então encerra o
+    /// `loading`. `track_id` descarta o aviso atrasado de uma faixa que já
+    /// saiu: sem ele, o último aviso da faixa anterior apagava o "carregando"
+    /// da nova e a barra voltava a correr sem som.
+    pub fn report_position(&self, channel_id: &str, position_s: u32, track_id: Option<&str>) {
         let mut inner = self.inner.lock().expect("musicbox queues");
-        if let Some(fila) = inner.filas.get_mut(channel_id) {
-            fila.position_s = position_s;
+        let Some(fila) = inner.filas.get_mut(channel_id) else {
+            return;
+        };
+        let atual = fila.current.as_ref().map(|t| t.id.as_str());
+        if track_id.is_some_and(|id| atual != Some(id)) {
+            return;
         }
+        fila.position_s = position_s;
+        fila.loading = false;
         inner.marcado.insert(channel_id.to_string(), Instant::now());
     }
 
@@ -172,6 +202,7 @@ pub fn avancar(fila: &mut ChannelQueue, saltou: bool) -> bool {
         if fila.current.is_some() {
             fila.position_s = 0;
             fila.playing = true;
+            fila.loading = true;
             return true;
         }
     }
@@ -185,10 +216,12 @@ pub fn avancar(fila: &mut ChannelQueue, saltou: bool) -> bool {
                 fila.current = Some(faixa);
                 fila.position_s = 0;
                 fila.playing = true;
+                fila.loading = true;
                 return true;
             }
         }
         fila.playing = false;
+        fila.loading = false;
         fila.position_s = 0;
         return false;
     }
@@ -216,6 +249,7 @@ pub fn avancar(fila: &mut ChannelQueue, saltou: bool) -> bool {
     fila.current = Some(proxima);
     fila.position_s = 0;
     fila.playing = true;
+    fila.loading = true;
     true
 }
 
@@ -343,6 +377,8 @@ mod test {
             f.playing = true;
             f.position_s = 0;
         });
+        // O agente avisou que o som saiu: so a partir dai a posicao anda.
+        filas.report_position("c1", 0, Some("curta"));
 
         std::thread::sleep(std::time::Duration::from_millis(2100));
         assert_eq!(
@@ -364,6 +400,7 @@ mod test {
             f.playing = true;
             f.position_s = 0;
         });
+        filas.report_position("c1", 0, Some("ao-vivo"));
 
         std::thread::sleep(std::time::Duration::from_millis(1100));
         assert!(
@@ -379,5 +416,76 @@ mod test {
         assert!(f.current.is_none());
         assert!(!f.playing);
         assert!(f.queue.is_empty());
+    }
+
+    #[test]
+    fn carregando_segura_a_posicao_ate_o_som_sair() {
+        let filas = Queues::new();
+
+        let f = filas.update("c1", |f| {
+            f.current = Some(faixa("a"));
+            f.playing = true;
+        });
+        assert!(f.loading, "faixa pedida e ainda sem som");
+
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        assert_eq!(
+            filas.get("c1").position_s,
+            0,
+            "carregando, a barra nao pode correr: pareceria tocar sem som"
+        );
+
+        filas.report_position("c1", 0, Some("a"));
+        assert!(!filas.get("c1").loading);
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        assert!(filas.get("c1").position_s >= 1, "com som, a contagem segue");
+    }
+
+    #[test]
+    fn aviso_atrasado_de_outra_faixa_nao_tira_o_carregando() {
+        let filas = Queues::new();
+
+        filas.update("c1", |f| {
+            f.current = Some(faixa("nova"));
+            f.playing = true;
+        });
+        filas.report_position("c1", 42, Some("velha"));
+
+        let f = filas.get("c1");
+        assert!(f.loading);
+        assert_eq!(f.position_s, 0);
+    }
+
+    #[test]
+    fn pausar_tira_o_carregando_e_retomar_volta() {
+        let filas = Queues::new();
+
+        filas.update("c1", |f| {
+            f.current = Some(faixa("a"));
+            f.playing = true;
+        });
+        let pausado = filas.update("c1", |f| f.playing = false);
+        assert!(!pausado.loading);
+
+        // Retomar recomeca o download no agente: carrega de novo.
+        let retomado = filas.update("c1", |f| f.playing = true);
+        assert!(retomado.loading);
+    }
+
+    #[test]
+    fn avancar_marca_carregando_ate_na_repeticao_de_uma() {
+        let mut f = ChannelQueue {
+            current: Some(faixa("a")),
+            playing: true,
+            repeat: Repeat::One,
+            ..Default::default()
+        };
+
+        assert!(avancar(&mut f, false));
+        assert!(f.loading, "repetir recomeca o download");
+
+        f.repeat = Repeat::Off;
+        assert!(!avancar(&mut f, false));
+        assert!(!f.loading, "acabou a fila, nada carrega");
     }
 }
